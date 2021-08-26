@@ -76,11 +76,15 @@ def show_bins(binmap):
 
 def reverseassign(map):
     m=int(np.nanmax(map))+1
-    binlist=[]*m
-    for y in len(map):
-        for x in len(map[0]):
-            binlist[int(map[y,x])]=(y,x)
-    return binlist
+    
+    binlist=[[]]*m
+    bbl=[]
+    for y in range(len(map)):
+        for x in range(len(map[0])):
+            print(int(map[y,x]))
+            binlist[int(map[y,x])].append((y,x))
+            bbl.append((y,x))
+    return binlist,bbl
 
 
 def spec_extract(cube, vcube, mask):
@@ -143,6 +147,65 @@ def spec_extract(cube, vcube, mask):
 
     return wave, flam_spec, flam_espec
 
+def spec_extract2(cube, vcube,mask, coords):
+    """
+    Extract a spectrum from the cube.  Include spaxels not masked.
+
+    Input:  cube (wavelength, y, x)  flux/pix
+            vcube (variance)
+            mask (y, x)
+    Output:
+            wave:  1D array
+            flux:  1D array (per A)
+            err:   1D array (per A)
+    """
+
+    nz = cube[:,0,0].size
+    ny = cube[0,:,0].size
+    nx = cube[0,0,:].size
+
+    #############################
+    # Select method of extraction
+    #############################
+    ifancy = True
+
+    if ifancy:
+        if False:
+            spec=np.einsum('ij,kij->k',mask,cube)
+            espec=np.einsum('ij,kij->k',mask,vcube)
+        else:
+            # Use list comprehension
+            print(coords)
+            speclist =  [cube[:,j,i] for (j,i) in coords]   #  returns a list of 1D arrays in k-space
+            allspec = np.array(speclist)                    #  2D array in (spaxel number, spectrallength)or (len(coords), nz)
+            spec = np.sum(allspec, axis=0)                  #  smash the spaxels into a 1D spectrum
+            especlist =  [vcube[:,j,i] for (j,i) in coords]   
+            eallspec= np.array(especlist)                     
+            espec = np.sum(eallspec, axis=0)  
+    else:
+        # use loop over all spaxels for complete flexibility
+        spec = np.zeros(nz)
+        espec = np.zeros(nz)
+        for i in range(nx):
+            for j in range(ny):
+                if mask[j,i] != 0:
+                    spec = spec + cube[:,j,i]
+                    espec = espec + vcube[:,j,i]
+
+
+    espec[np.isnan(espec)] = 9e9  # Flag Nans with 9e9
+    espec[espec<0] = 9e9          # Flag Negative Variance with 9e9
+    espec = np.sqrt(espec)
+    cd    = cube_header['CD3_3']   # From "per pixel" to "per Angstrom"
+    crval =  cube_header['CRVAL3']
+
+    flam_spec = spec * (1. / cd)
+    flam_espec = espec * (1. / cd)
+    wave = np.zeros(nz)
+    for k in range(wave.size):
+        wave[k] = crval + cd * k
+
+    return wave, flam_spec, flam_espec
 
 def plot_spectrum(wave, spec, espec, label):
         """
@@ -989,8 +1052,9 @@ if verbose:
 
 print("line 933")
 
-binlist = list(id[1:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
-
+#binlist = list(id[1:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
+binlist,bbl=reverseassign(goodbins)
+binlist=binlist[1:]
 # Example O2 bins
 #binlist = list(id[599:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
 #binlist = [1573]  #J1044
@@ -1040,9 +1104,10 @@ sigmae=[]
 
 nm = 0  # index counter for binlist
 for m in binlist:
-    print ("Extracting bin ", m,"out of",len(binlist))
-    mask = np.where(bin == m, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
-    wave, flam_spec, flam_espec = spec_extract(cube, vcube, mask)
+    print(m)
+    print ("Extracting bin ", nm,"out of",len(binlist))
+    mask = np.where(bin == nm+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
+    wave, flam_spec, flam_espec = spec_extract2(cube, vcube,mask, m)
 
     '''
     if verbose:
@@ -1075,7 +1140,7 @@ for m in binlist:
 #line = ["O3_4959", "O3_5007", "O2"] 
 #w0 = [4958.92, 5006.84, 3728.82] # rest-frame wavelengths  3726.03, 3728.82
 3
-wavea,flam_speca,flam_especa=spec_extract(cube, vcube, np.where(bin==bin,bin,0))
+wavea,flam_speca,flam_especa=spec_extract2(cube, vcube,np.where(bin>0,1,0), bbl)
 flux5007a, snr5007a,p5007a,e5007a,wlinea = get_line5007(wavea / (1 + zspec), flam_speca, flam_especa, wflag)
 redshifta=(p5007a[1]-wlinea)/wlinea
 print(flux5007a)
