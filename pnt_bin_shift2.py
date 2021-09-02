@@ -77,13 +77,12 @@ def show_bins(binmap):
 def reverseassign(map):
     m=int(np.nanmax(map))+1
     
-    binlist=[[]]*m
+    binlist=[[] for r in range(m)]
     bbl=[]
     for y in range(len(map)):
         for x in range(len(map[0])):
-            print(int(map[y,x]))
             binlist[int(map[y,x])].append((y,x))
-            bbl.append((y,x))
+            bbl.append((y,x))  
     return binlist,bbl
 
 
@@ -147,7 +146,7 @@ def spec_extract(cube, vcube, mask):
 
     return wave, flam_spec, flam_espec
 
-def spec_extract2(cube, vcube,mask, coords):
+def spec_extract2(cube, vcube, coords):
     """
     Extract a spectrum from the cube.  Include spaxels not masked.
 
@@ -168,6 +167,12 @@ def spec_extract2(cube, vcube,mask, coords):
     # Select method of extraction
     #############################
     ifancy = True
+    p=time.time()
+    #allspec=np.zeros((len(coords),nz))
+    #eallspec=np.zeros((len(coords),nz))
+    spec=np.zeros(nz)
+    espec=np.zeros(nz)
+    print("nspec",nz)
 
     if ifancy:
         if False:
@@ -175,13 +180,24 @@ def spec_extract2(cube, vcube,mask, coords):
             espec=np.einsum('ij,kij->k',mask,vcube)
         else:
             # Use list comprehension
+            a=time.time()
+            print("init",a-p) 
             print(coords)
-            speclist =  [cube[:,j,i] for (j,i) in coords]   #  returns a list of 1D arrays in k-space
-            allspec = np.array(speclist)                    #  2D array in (spaxel number, spectrallength)or (len(coords), nz)
-            spec = np.sum(allspec, axis=0)                  #  smash the spaxels into a 1D spectrum
-            especlist =  [vcube[:,j,i] for (j,i) in coords]   
-            eallspec= np.array(especlist)                     
-            espec = np.sum(eallspec, axis=0)  
+            #speclist =  [cube[:,j,i] for (j,i) in coords]   #  returns a list of 1D arrays in k-space
+            #allspec = np.array(speclist)                    #  2D array in (spaxel number, spectrallength)or (len(coords), nz)
+            #spec = np.sum(allspec, axis=0)                  #  smash the spaxels into a 1D spectrum
+            #print("sumlist",time.time()-a)
+            for q in range(len(coords)):
+                spec+=cube[:,coords[q][0],coords[q][1]]
+                espec+=vcube[:,coords[q][0],coords[q][1]]
+            c=time.time()
+            print("zip time",c-a)
+            b=time.time()
+            print("array crafting",b-c) 
+            #eallspec= np.array(especlist)                     
+            #espec = np.sum(eallspec, axis=0) 
+                
+            print("ecube navigation",time.time()-b) 
     else:
         # use loop over all spaxels for complete flexibility
         spec = np.zeros(nz)
@@ -976,7 +992,7 @@ def get_fitAr4(wk0, flux, err, wflag, flag_LDL):
 #xiraf = 79.8
 #yiraf = 70.5
 #
-
+'''
 bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j1238+1009_main_icubes3727_assigned.fits'    # Assigned Bins, as ID[x,y] Used O2 3727
 #bin_file = 'j0823+0313/assigned4740_j0823.fits'    # Assigned Bins, as ID[x,y] ArIV
 cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_icubes.fits' # Flux Cube
@@ -988,7 +1004,7 @@ bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_i
 cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits' # Flux Cube
 vcube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits' # Variance Cube
 dest="/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"
-'''
+
 zspec = 0.009864
 xiraf = 119
 yiraf = 96
@@ -1104,10 +1120,9 @@ sigmae=[]
 
 nm = 0  # index counter for binlist
 for m in binlist:
-    print(m)
-    print ("Extracting bin ", nm,"out of",len(binlist))
-    mask = np.where(bin == nm+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
-    wave, flam_spec, flam_espec = spec_extract2(cube, vcube,mask, m)
+    print ("Extracting bin ", nm+1,"out of",len(binlist))
+    #mask = np.where(bin == nm+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
+    wave, flam_spec, flam_espec = spec_extract2(cube, vcube, m)
 
     '''
     if verbose:
@@ -1120,9 +1135,9 @@ for m in binlist:
     allflux[nm,:]   = np.copy(flam_spec)
     allerr[nm,:]    = np.copy(flam_espec)
     '''
-    allmask[nm,:,:] = np.copy(mask)
+    #allmask[nm,:,:] = np.copy(mask)
     wk0 = wave / (1 + zspec)  # rest-frame wavelength
-    print ("Fitting bin ", m,"out of",len(binlist))
+    print ("Fitting bin ", nm+1,"out of",len(binlist))
     flux5007, snr5007,p5007,e5007,wline = get_line5007(wk0, flam_spec, flam_espec, wflag)
     redshift=(p5007[1]-wline)/wline
     shift.append(redshift)
@@ -1140,7 +1155,7 @@ for m in binlist:
 #line = ["O3_4959", "O3_5007", "O2"] 
 #w0 = [4958.92, 5006.84, 3728.82] # rest-frame wavelengths  3726.03, 3728.82
 3
-wavea,flam_speca,flam_especa=spec_extract2(cube, vcube,np.where(bin>0,1,0), bbl)
+wavea,flam_speca,flam_especa=spec_extract2(cube, vcube, bbl)
 flux5007a, snr5007a,p5007a,e5007a,wlinea = get_line5007(wavea / (1 + zspec), flam_speca, flam_especa, wflag)
 redshifta=(p5007a[1]-wlinea)/wlinea
 print(flux5007a)
@@ -1149,7 +1164,7 @@ print(redshifta)
 shiftdif=[a-redshifta for a in shift]
 
 print("line 1036")
-
+'''
 mastershift = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
 for nm in range(nspec):   # each entry in binlist
     mastershift[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shift[nm]
@@ -1176,7 +1191,27 @@ for nm in range(nspec):   # each entry in binlist
     mastershiftdif[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shiftdif[nm]
 mapshiftdif = np.sum(mastershiftdif, axis=0)
 fits.writeto(dest+'shiftdif_bin.fits', mapshiftdif, image_header, overwrite=True)  
+'''
 
+mapshift = np.zeros_like(goodbins)
+mapshifte = np.zeros_like(goodbins)
+mapsigma = np.zeros_like(goodbins)
+mapsigmae = np.zeros_like(goodbins)
+mapshiftdif = np.zeros_like(goodbins)
+for b in range(len(binlist)):
+    for t in binlist[b]:
+        y=int(t[0])
+        x=int(t[1])
+        mapshift[y,x]=shift[b]
+        mapshifte[y,x]=shifte[b]
+        mapsigma[y,x]=sigma[b]
+        mapsigmae[y,x]=sigmae[b]
+        mapshiftdif[y,x]=shiftdif[b]
+fits.writeto(dest+'shift_bin.fits', mapshift, image_header, overwrite=True) 
+fits.writeto(dest+'shifte_bin.fits', mapshifte, image_header, overwrite=True)
+fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True) 
+fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True) 
+fits.writeto(dest+'shiftdif_bin.fits', mapshiftdif, image_header, overwrite=True)  
 '''
 # Populate the O32 map
 masterO32 = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
@@ -1249,7 +1284,7 @@ for m in binlist:
 
 
 # Save Output
-data = Table([bin_radii, bin_radii_err, bin_theta, shift, shifte,shiftdif,sigma,sigmae, binlist], names=['R(pix)', 'errR(pix)', "theta", 'shift', 'shifterr','shiftdif','sigma','sigmaerr', 'bin'])
+data = Table([bin_radii, bin_radii_err, bin_theta, shift, shifte,shiftdif,sigma,sigmae, range(len(binlist))], names=['R(pix)', 'errR(pix)', "theta", 'shift', 'shifterr','shiftdif','sigma','sigmaerr', 'bin'])
 ascii.write(data, dest+"output_bin_R_shift.txt", overwrite = True)
 
 '''

@@ -106,9 +106,12 @@ def spec_extract(cube, vcube, mask):
     ifancy = True
 
     if ifancy:
+        a=time.time()
         if mask.sum()>1:
+            
             spec=np.einsum('ij,kij->k',mask,cube)
             espec=np.einsum('ij,kij->k',mask,vcube)
+            print("einsum time",time.time()-a,"binsize",mask.sum())
         else:
             # Use list comprehension
             coords = [(j,i) for j in range(mask[:,0].size) for i in range(mask[0,:].size) if mask[j,i] !=0]  # select spaxels
@@ -117,7 +120,8 @@ def spec_extract(cube, vcube, mask):
             spec = np.sum(allspec, axis=0)                  #  smash the spaxels into a 1D spectrum
             especlist =  [vcube[:,j,i] for (j,i) in coords]   
             eallspec= np.array(especlist)                     
-            espec = np.sum(eallspec, axis=0)  
+            espec = np.sum(eallspec, axis=0)
+            print("comprehension time",time.time()-a)  
     else:
         # use loop over all spaxels for complete flexibility
         spec = np.zeros(nz)
@@ -913,7 +917,7 @@ def get_fitAr4(wk0, flux, err, wflag, flag_LDL):
 #xiraf = 79.8
 #yiraf = 70.5
 #
-
+'''
 bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j1238+1009_main_icubes3727_assigned.fits'    # Assigned Bins, as ID[x,y] Used O2 3727
 #bin_file = 'j0823+0313/assigned4740_j0823.fits'    # Assigned Bins, as ID[x,y] ArIV
 cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_icubes.fits' # Flux Cube
@@ -925,7 +929,7 @@ bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_i
 cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits' # Flux Cube
 vcube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits' # Variance Cube
 dest="/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"
-'''
+
 zspec = 0.009864
 xiraf = 119
 yiraf = 96

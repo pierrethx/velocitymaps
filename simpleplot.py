@@ -7,6 +7,7 @@ from astropy import wcs
 from matplotlib import colors
 from matplotlib.widgets import Slider 
 
+maskk=True
 
 root=tkinter.Tk()
 root.withdraw()
@@ -17,8 +18,23 @@ while(placeholder!=''):
     root.destroy()
 
     with fits.open(placeholder,checksum=True) as hdul:
-        signal=np.flipud(hdul[0].data)
+        signal0=np.flipud(hdul[0].data)
         wcsx=hdul[0].header
+    
+    if maskk:
+        root=tkinter.Tk()
+        root.withdraw()
+        pj=askopenfilename(message="Select 2d fits file to serve as mask")
+        with fits.open(pj,checksum=True) as hdul:
+            mask=np.flipud(hdul[0].data)
+            wcsx2=hdul[0].header
+        
+        root.update()
+        root.destroy()
+
+        signal=np.ma.masked_where(mask==0,signal0)
+    else:
+        signal=signal0
     
     #signal=np.ma.masked_outside(signal,-1,10000)
     fl=signal.flatten()
