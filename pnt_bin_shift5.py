@@ -2,12 +2,14 @@
 #       6/22/2021 -- flag whether or not you are using  Ar4 assigned map; otherwise assume the O2 assigned map
 # v2 - adds the radial plot of O32 values
 # Package to extract spectra from a pixel list, such as those defined by binning a cube.
+from astropy.io.fits import file
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from astropy.io import fits
 from astropy.io import ascii
 from astropy.table import Table
+from numpy.core.numeric import zeros_like
 from scipy.optimize import curve_fit
 from IPython import embed   # add embed()
 import time
@@ -39,7 +41,7 @@ Action Items:
       Setting the LDL flag for O2 in both fit_line and main is awkward.
 
 """
-start=time.time()
+start0=time.time()
 func = lambda x, a, xcen, sigma:  a * np.exp(-(x-xcen)**2 / (2 * sigma ** 2))  # Area = 
 
 # a: amp_3729 and b = amp_3726
@@ -175,7 +177,7 @@ def spec_extract2(cube, vcube, mask, coords):
     print("nspec",nz)
 
     if ifancy:
-        if len(coords)>1:
+        if False:
             spec=np.einsum('ij,kij->k',mask,cube)
             espec=np.einsum('ij,kij->k',mask,vcube)
         else:
@@ -187,13 +189,11 @@ def spec_extract2(cube, vcube, mask, coords):
             #allspec = np.array(speclist)                    #  2D array in (spaxel number, spectrallength)or (len(coords), nz)
             #spec = np.sum(allspec, axis=0)                  #  smash the spaxels into a 1D spectrum
             #print("sumlist",time.time()-a)
-            '''
+            
             for q in range(len(coords)):
                 spec+=cube[:,coords[q][0],coords[q][1]]
                 espec+=vcube[:,coords[q][0],coords[q][1]]
-            '''
-            spec=cube[:,coords[0][0],coords[0][1]]
-            espec=vcube[:,coords[0][0],coords[0][1]]
+            
             c=time.time()
             print("zip time",c-a)
             '''
@@ -216,8 +216,8 @@ def spec_extract2(cube, vcube, mask, coords):
                 if mask[j,i] != 0:
                     spec = spec + cube[:,j,i]
                     espec = espec + vcube[:,j,i]
-    print("all",time.time()-p) 
-    
+
+
     espec[np.isnan(espec)] = 9e9  # Flag Nans with 9e9
     espec[espec<0] = 9e9          # Flag Negative Variance with 9e9
     espec = np.sqrt(espec)
@@ -231,6 +231,76 @@ def spec_extract2(cube, vcube, mask, coords):
         wave[k] = crval + cd * k
 
     return wave, flam_spec, flam_espec
+
+def spec_extractALL(cube, vcube, assign):
+    """
+    Extract a spectrum from the cube.  Include spaxels not masked.
+
+    Input:  cube (wavelength, y, x)  flux/pix
+            vcube (variance)
+            mask (y, x)
+    Output:
+            wave:  1D array
+            flux:  1D array (per A)
+            err:   1D array (per A)
+    """
+    mapa=assign.astype(int)
+    binnum=int(np.nanmax(mapa))+1
+    nz = cube[:,0,0].size
+    ny = cube[0,:,0].size
+    nx = cube[0,0,:].size
+
+    allspec=np.zeros((binnum,nz))
+    allespec=np.zeros((binnum,nz))
+
+    #############################
+    # Select method of extraction
+    #############################
+    ifancy = True
+    p=time.time()
+    #allspec=np.zeros((len(coords),nz))
+    #eallspec=np.zeros((len(coords),nz))
+    spec=np.zeros(nz)
+    espec=np.zeros(nz)
+    print("nspec",nz)
+
+    mask=np.where(mapa!=0,1,0)
+    mcube=np.einsum('ij,kij->kij',mask,cube)
+    mvcube=np.einsum('ij,kij->kij',mask,vcube)
+
+    # use loop over all spaxels for complete flexibility
+    '''
+    for i in range(nx):
+        
+        for j in range(ny):
+            if assign[j,i]==0:
+                pass
+            else:
+                allspec[:,int(assign[j,i])]+=mcube[:,j,i]
+                allespec[:,int(assign[j,i])]+=mvcube[:,j,i]
+            print(i,'out of',nx,'and',j,'out of',ny, "time",time.time()-p)
+        '''
+    # https://jakevdp.github.io/PythonDataScienceHandbook/02.07-fancy-indexing.html
+    # there is an indexing issue without .at
+    #allspec[:,np.reshape(mapa[:,:],nx*ny,order='C')]=allspec[:,np.reshape(mapa[:,:],nx*ny,order='C')]+np.reshape(mcube[:,:,:],(nz,nx*ny),order='C')
+    np.add.at(allspec,np.reshape(mapa,nx*ny,order='C'),np.reshape(mcube,(nz,nx*ny),order='C').T)
+    #allespec[:,np.reshape(mapa[:,:],nx*ny,order='C')]=allespec[:,np.reshape(mapa[:,:],nx*ny,order='C')]+np.reshape(mvcube[:,:,:],(nz,nx*ny),order='C')
+    np.add.at(allespec,np.reshape(mapa,nx*ny,order='C'),np.reshape(mvcube,(nz,nx*ny),order='C').T)
+    print("time",time.time()-p)
+
+    allespec[np.isnan(allespec)] = 9e9  # Flag Nans with 9e9
+    allespec[allespec<0] = 9e9          # Flag Negative Variance with 9e9
+    allespec = np.sqrt(allespec)
+    cd    = cube_header['CD3_3']   # From "per pixel" to "per Angstrom"
+    crval =  cube_header['CRVAL3']
+
+    allflam_spec = allspec * (1. / cd)
+    allflam_espec = allespec * (1. / cd)
+    wave = np.zeros(nz)
+    for k in range(wave.size):
+        wave[k] = crval + cd * k
+
+    return wave, allflam_spec.T, allflam_espec.T
 
 def plot_spectrum(wave, spec, espec, label):
         """
@@ -371,7 +441,7 @@ def fit_line(x, y, yerr, w0, wmin, wmax, bmin, bmax):
         #    print ("bhi = ", bhi, x[bhi])
         xbg = np.append(x[ilo:blo], x[bhi:ihi])
         ybg = np.append(y[ilo:blo], y[bhi:ihi])
-        cc = np.polyfit(xbg,ybg,1)  # continuum coefficients (first order polynomial)                                   
+        cc = np.polyfit(xbg,ybg,1)  # continuum coefficients (first order polynomial)  
         func_bg = np.poly1d(cc)  # function specifying local background                                                 
 
         # Subtract background                                                                                           
@@ -490,10 +560,14 @@ def fit_line(x, y, yerr, w0, wmin, wmax, bmin, bmax):
         yline = func(xline,p[0],p[1],p[2])
 
     if verbose:
+        print(w0,wmin,wmax,bmin,bmax)
+        plt.close()
         fig = plt.figure()
         #plt.plot(xsec,ysub, 'k', label="data-bg")
         #plt.plot(xsec,yfit_line,'b', label="fit",  alpha=0.5)
-        plt.step(xsec,ysub, 'k', label="data-bg")        
+        plt.step(xsec,ysec, 'g', label="data unedited")
+        plt.step(xsec,ysub, 'k', label="data-bg")  
+        plt.step(xsec,yfit_cont,'r', label="continuum",  alpha=0.7)      
         plt.step(xsec,yfit_line,'b', label="fit",  alpha=0.5)
         yzero = np.zeros(yline.size)
         plt.fill_between(xline, yzero, yline, color='blue', where=None, label="fit",  alpha=0.5)
@@ -503,10 +577,207 @@ def fit_line(x, y, yerr, w0, wmin, wmax, bmin, bmax):
         label = str(p)
         plt.title(label)
         plt.legend()
-        fig.show()
+        plt.show()
     
     p[2] = np.abs(p[2]) # sigma sign does not matter
+
     return cc, p, perr
+
+def fit_line_xbg(x, y, yerr, w0, wmin, wmax, bmin, bmax,wguess):
+    """                                                                                                             
+    Fit continuum (first order polynomial)                                                                          
+    Subtract continuum                                                                                              
+    Fit Gaussian line profile                                                                                       
+                                                                                                                    
+    Fitting functions:                                                                                              
+       Define func globally                                                                                          
+       func:   single lines                                                                                         
+               func = lambda x, a, xcen, sigma:  a * np.exp(-(x-xcen)**2 / (2 * sigma ** 2) )                                  
+       func2:  blend
+
+       func_ldl:  blend but with 3 parameters and LDL line ratio
+
+    Return                                                                                                          
+       cc:  polynomical coefficients                                                                                
+       gc:  gaussian parameters (3 parameters for single line; 4 parameters for blend)                              
+       perr: error on gaussian coefficients                                                                         
+    """
+
+    ##### Iterate to find boundaries:  [wmin] .. continuum ...  [bmin]  ... line ... [bmax] ... continuum .... [wmax] 
+    #verbose = True                                                                                                 
+    verbose = False
+    flag_LDL = True # low density limit for O2 doublet.  Leave this ON. Call fit_doublet if NOT LDL.
+
+    while True:   
+        # Clip out the section to fit                                                                                   
+        ilo = fnd_indx(x,wmin)
+        ihi = fnd_indx(x,wmax)
+        #if verbose:
+        #    print ("ilo = ", ilo, x[ilo])
+        #    print ("ihi = ", ihi, x[ihi])
+        xsec = np.copy(x[ilo:ihi])  # Does not include x[ihi], which is the first x >= wmax.                            
+        ysec = np.copy(y[ilo:ihi])
+        esec = np.copy(yerr[ilo:ihi])
+
+        # Clip out the line & fit the background                                                                     
+        blo = fnd_indx(x,bmin)
+        bhi = fnd_indx(x,bmax)
+        #if verbose:
+        #    print ("blo = ", blo, x[blo])
+        #    print ("bhi = ", bhi, x[bhi])
+        '''
+        xbg = np.append(x[ilo:blo], x[bhi:ihi])
+        ybg = np.append(y[ilo:blo], y[bhi:ihi])
+        cc = np.polyfit(xbg,ybg,1)  # continuum coefficients (first order polynomial)  
+        func_bg = np.poly1d(cc)  # function specifying local background                                                 
+
+        # Subtract background                                                                                           
+        yfit_cont = func_bg(xsec)  # You can define the background at any desired wavelength                            
+        '''
+        ysub = ysec 
+
+        #####  Make Guess for Line
+        amp = np.abs( 10 * ysub.mean() ) # Gaussian amplitude; keep it positive.                                                                   
+        gsdev = (bmax - bmin) / 6. # Gaussian stddev (units of x) tied to region excluded from bkgd fit                 
+
+        if (w0 >=3726) and (w0 <= 3730):   # Allow for doublet [OII] 3726.03, 3728.82
+            if flag_LDL:
+                # 3 parameters                                                                                              
+                guess = np.array([amp,w0,gsdev]) # a_amplitude, center, stddev, b_amplitude                         
+                plo   = np.array([0, 0, 0])
+                phi   = np.array([np.inf, np.inf, np.inf])
+                yguess = func_ldl(xsec,guess[0],guess[1],guess[2])
+                # use bounds to prevent negative amplitudes
+            else:
+                # 4 parameters                                                                                              
+                guess = np.array([amp,w0,gsdev,amp*0.5]) # a_amplitude, center, stddev, b_amplitude                         
+                plo   = np.array([0, 0, 0, 0])
+                phi   = np.array([np.inf, np.inf, np.inf, np.inf])
+                yguess = func2(xsec,guess[0],guess[1],guess[2],guess[3])
+                # use bounds to prevent negative amplitudes
+        else:
+            # 3 parameters                                                                                              
+            #guess = np.array([2e-16,w0,1.]) # amplitude, center, stddev                                                
+            guess = np.abs(np.array([np.nanmax(ysub),wguess,gsdev])) # amplitude, center, stddev                                                
+            plo   = np.array([0, wmin, 0])
+            
+            phi   = np.abs(np.array([2*np.nanmax(ysub), wmax, bmax-bmin]))
+            
+            yguess = func(xsec,guess[0],guess[1],guess[2])
+        if verbose:   # show guess
+            yfit = func_bg(xsec)  # You can define the background at any desired wavelength                             
+            fig = plt.figure()
+            plt.plot(xsec,ysec, 'k:', label="data")
+            plt.plot(xsec,yguess, 'g:', label="guess", alpha=0.5)
+            plt.plot(xsec, ysub, 'k', label="data-bg")
+            yy = [0,0]
+            bb = [bmin, bmax]
+            ww = [wmin, wmax]
+            plt.plot(bb, yy, 'rs')
+            plt.plot(ww, yy, 'ks')
+            plt.legend()
+            fig.show()
+
+        if verbose:
+            # Ask user whether a revision is needed. 
+            s = input(str(w0) + ":  Fit range [wmin .... bmin XXXXXXX bmax ..... wmax]?  Enter [n] to revise.")
+            if s != 'n':
+                break
+        
+            s = input("New wmin [space to skip]: ")
+            if s == ' ':
+                print("Keep wmin = ", wmin)
+            else:
+                wmin = float(s)
+
+            s = input("New wmax [space to skip]: ")
+            if s == ' ':
+                print("Keep wmax = ", wmax)
+            else:
+                wmax = float(s)
+
+            s = input("New bmin [space to skip]: ")
+            if s == ' ':
+                print("Keep bmin = ", bmin)
+            else:
+                bmin = float(s)
+
+            s = input("New bmax [space to skip]: ")
+            if s == ' ':
+                print("Keep bmax = ", bmax)
+            else:
+                bmax = float(s)
+
+            continue
+        else:
+            break  # leave the While Loop if NOT VERBOSE
+
+    if verbose:
+        print("Proceeding to fit range [wmin, bmin, bmax, wmax]: ", wmin, bmin, bmax, wmax)
+
+    #####  Fit Line
+    if (w0 >3726) and (w0 <= 3730):   # Allow for doublet [OII] 3726.03, 3728.82
+        if flag_LDL:
+            # 3 parameters                                                                                              
+            p, pcov = curve_fit(func_ldl, xsec, ysub, guess, esec, bounds = [plo,phi])  # y is continuum subtracted (important)                
+        else:
+            # 4 parameters                                                                                              
+            p, pcov = curve_fit(func2, xsec, ysub, guess, esec, bounds = [plo,phi])  # y is continuum subtracted (important)                
+    else:
+        # 3 parameters                                                                                              
+        #print(plo,guess,phi)
+        if guess[0]<0:
+            guess[0]=(phi[0]+plo[0])/2
+        print(plo,guess,phi)
+        p, pcov = curve_fit(func, xsec, ysub, guess, esec, bounds = [plo,phi])  # y is continuum subtracted (important)                 
+        
+
+    perr = np.sqrt(np.diag(pcov))
+    if verbose:
+        print('Fit Completed')
+
+
+    #####  show fit
+    if (w0 >=3726) and (w0 <= 3730):   # Allow for doublet [OII] 3726.03, 3728.82
+        if flag_LDL:
+            # 3 parameters                                                                                              
+            yfit_line = func_ldl(xsec,p[0],p[1],p[2])  # blended lines                                                
+            xline = np.linspace(bmin,bmax,50)           # high resolution
+            yline = func_ldl(xline,p[0],p[1],p[2])  
+        else:
+            # 4 parameters                                                                                              
+            yfit_line = func2(xsec,p[0],p[1],p[2],p[3])  # blended lines                                                
+            xline = np.linspace(bmin,bmax,50)           # high resolution
+            yline = func2(xline,p[0],p[1],p[2],p[3])  
+    else:
+        yfit_line = func(xsec,p[0],p[1],p[2])        # single line                                                  
+        xline = np.linspace(bmin,bmax,50)           # high resolution
+        yline = func(xline,p[0],p[1],p[2])
+
+    if verbose:
+        print(w0,wmin,wmax,bmin,bmax)
+        plt.close()
+        fig = plt.figure()
+        #plt.plot(xsec,ysub, 'k', label="data-bg")
+        #plt.plot(xsec,yfit_line,'b', label="fit",  alpha=0.5)
+        plt.step(xsec,ysec, 'g', label="data unedited")
+        plt.step(xsec,ysub, 'k', label="data-bg")  
+        #plt.step(xsec,yfit_cont,'r', label="continuum",  alpha=0.7)      
+        plt.step(xsec,yfit_line,'b', label="fit",  alpha=0.5)
+        yzero = np.zeros(yline.size)
+        plt.fill_between(xline, yzero, yline, color='blue', where=None, label="fit",  alpha=0.5)
+        yy = np.array(plt.ylim())
+        plt.plot([p[1], p[1]], yy, "k:")
+        #label = "A, xcen, sigma: " + str(p)                                                                        
+        label = str(p)
+        plt.title(label)
+        plt.legend()
+        plt.show()
+    
+    p[2] = np.abs(p[2]) # sigma sign does not matter
+    cc=np.zeros(2)
+
+    return cc,p, perr
 
 def get_snr_line(wave, flux, err, bmin, bmax):
         """
@@ -578,7 +849,7 @@ def get_fit5007(wk0, flux, err, wflag):
     bmax = 5012
     wmax = 5030
     try:
-        c5007, p5007, e5007 = fit_line(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
+        c5007, p5007, e5007 = fit_line_xbg(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
     except RuntimeError:
         print("Bin", m, "no 5007 fit.")
         c5007 = np.array([0,0])
@@ -592,7 +863,7 @@ def get_fit5007(wk0, flux, err, wflag):
 
     return flux5007, snr5007
 
-def get_line5007(wk0, flux, err, wflag):
+def get_line5007(wk0, flux, err, wflag,wenter):
     """
     Wavelength is rest frame.
     Flux is observed frame - needs to be fixed OR fit in observed frame.
@@ -607,13 +878,16 @@ def get_line5007(wk0, flux, err, wflag):
     bmin = 5000
     bmax = 5012
     wmax = 5030
-    try:
-        c5007, p5007, e5007 = fit_line(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
-    except RuntimeError:
-        print("Bin", m, "no 5007 fit.")
+    
+    if True:
+        c5007, p5007, e5007 = fit_line_xbg(wk0, flux, err, wline, wmin, wmax, bmin, bmax,wenter)
+    '''
+    except:
+        print("Bin no 5007 fit.")
         c5007 = np.array([0,0])
         p5007 = np.array([0,5006.84,1])
         e5007 = 10 * p5007
+    '''
     myline = func(wk0, *p5007) # fitted line
     p1 = np.poly1d(c5007)
     myfit  = func(wk0, *p5007) + p1(wk0)# fitted line + continuum
@@ -621,7 +895,6 @@ def get_line5007(wk0, flux, err, wflag):
     snr5007 = get_snr_line(wk0,flux,err,bmin,bmax)
 
     return flux5007, snr5007, p5007,e5007,wline
-
 
 def get_fit4959(wk0, flux, err, wflag):
     """
@@ -639,7 +912,7 @@ def get_fit4959(wk0, flux, err, wflag):
     bmax = 4961
     wmax = 5000
     try:
-        c4959, p4959, e4959 = fit_line(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
+        c4959, p4959, e4959 = fit_line_xbg(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
     except RuntimeError:
         print("Bin", m, "no 4959 fit.")
         c4959 = np.array([0,0])
@@ -653,6 +926,35 @@ def get_fit4959(wk0, flux, err, wflag):
 
     return flux4959, snr4959
 
+def get_line4959(wk0, flux, err, wflag,wenter):
+    """
+    Wavelength is rest frame.
+    Flux is observed frame - needs to be fixed OR fit in observed frame.
+    """
+    if wflag == 'vac':
+        wline = 4960.30 
+    else:
+        wline= 4958.92 # use air
+
+    ####### [wmin] .. continuum ...  [bmin]  ... line ... [bmax] ... continuum .... [wmax] ######## 
+    wmin = 4920
+    bmin = 4954
+    bmax = 4961
+    wmax = 5000
+    try:
+        c4959, p4959, e4959 = fit_line_xbg(wk0, flux, err, wline, wmin, wmax, bmin, bmax,wenter)
+    except RuntimeError:
+        print("Bin", m, "no 4959 fit.")
+        c4959 = np.array([0,0])
+        p4959 = np.array([0,4958.92,1])
+        e4959 = 10 * p4959
+    myline = func(wk0, *p4959) # fitted line
+    p1 = np.poly1d(c4959)
+    myfit  = func(wk0, *p4959) + p1(wk0)# fitted line + continuum
+    flux4959 = np.sqrt(2 * np.pi) * p4959[0] * (1 + zspec) * p4959[2]  # Area = sqrt(2 pi) * amplitude * stddev
+    snr4959 = get_snr_line(wk0,flux,err,bmin,bmax)
+
+    return flux4959, snr4959, p4959,e4959,wline
 
 def get_fit3727(wk0, flux, err, wflag, flag_LDL):
     """
@@ -676,7 +978,7 @@ def get_fit3727(wk0, flux, err, wflag, flag_LDL):
     snratio=0
     try:
         if flag_LDL:   # (3 parameters)
-            c3727, p3727, e3727 = fit_line(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
+            c3727, p3727, e3727 = fit_line_xbg(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
         else:   # fit the doublet (4 parameters)
             c3727, p3727, e3727, flag3, dratio, snratio = fit_doublet(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
     except RuntimeError:
@@ -705,6 +1007,58 @@ def get_fit3727(wk0, flux, err, wflag, flag_LDL):
 
 
     return flux3727, snr3727, dratio, snratio
+
+def get_line3727(wk0, flux, err, wflag, flag_LDL,wenter):
+    """
+    Wavelength is rest frame for the higher J line.
+    Flux is observed frame - needs to be fixed OR fit in observed frame.
+
+    Return:  line flux, line snr, doublet ratio, s/n ratio on doublet ratio
+    """
+    if wflag == 'vac':
+        wline = 3729.88
+    else:
+        wline= 3728.82 # use air
+
+    ####### [wmin] .. continuum ...  [bmin]  ... line ... [bmax] ... continuum .... [wmax] ######## 
+    wmin = 3690
+    bmin = 3720
+    bmax = 3732
+    wmax = 3750
+    flag3=False
+    dratio=0
+    snratio=0
+    try:
+        if flag_LDL:   # (3 parameters)
+            c3727, p3727, e3727 = fit_line_xbg(wk0, flux, err, wline, wmin, wmax, bmin, bmax,wenter)
+        else:   # fit the doublet (4 parameters)
+            c3727, p3727, e3727, flag3, dratio, snratio = fit_doublet(wk0, flux, err, wline, wmin, wmax, bmin, bmax)
+    except RuntimeError:
+        print("Bin", m, "no 3727 fit.")
+        c3727 = np.array([0,0])
+        if flag_LDL:
+           p3727 = np.array([0,wline,1])   # 3 parameters
+        else:
+           p3727 = np.array([0,wline,1,0])   # 4 parameters
+        e3727 = 10 * p3727
+
+    p1 = np.poly1d(c3727)
+    if flag3 == 'LDL':
+        myline = func_ldl(wk0, *p3727) # fitted line
+        flux3727 = np.sqrt(2 * np.pi) * p3727[0] * (1 + zspec) * p3727[2] + np.sqrt(2 * np.pi) * p3727[0] / 1.47 * (1 + zspec) * p3727[2]     # Area for doublet
+        snr3727 = get_snr_line(wk0,flux,err,bmin,bmax)
+    elif flag3 == 'HDL':
+        myline = func_hdl(wk0, *p3727) # fitted line
+        flux3727 = np.sqrt(2 * np.pi) * p3727[0] * (1 + zspec) * p3727[2] + np.sqrt(2 * np.pi) * p3727[0]  / 0.29 * (1 + zspec) * p3727[2]     # Area for doublet
+        snr3727 = get_snr_line(wk0,flux,err,bmin,bmax)
+    else:  # 4 parameters
+        myline = func2(wk0, *p3727) # fitted line
+        flux3727 = np.sqrt(2 * np.pi) * p3727[0] * (1 + zspec) * p3727[2] + np.sqrt(2 * np.pi) * p3727[3] * (1 + zspec) * p3727[2]     # Area for doublet
+        snr3727 = get_snr_line(wk0,flux,err,bmin,bmax)
+    myfit  = myline + p1(wk0)# fitted line + continuum
+
+
+    return flux3727, snr3727, dratio, snratio, p3727, e3727, wline
 
 def fit_doublet(x, y, yerr, w0, wmin, wmax, bmin, bmax):
     """                                                                                                             
@@ -1001,320 +1355,481 @@ def get_fitAr4(wk0, flux, err, wflag, flag_LDL):
 #xiraf = 79.8
 #yiraf = 70.5
 #
+bin_file_list=[]
+cube_file_list=[]
+vcube_file_list=[]
+dest_list=[]
+
+binning="target5/"
 '''
-bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j1238+1009_main_icubes3727_assigned.fits'    # Assigned Bins, as ID[x,y] Used O2 3727
-#bin_file = 'j0823+0313/assigned4740_j0823.fits'    # Assigned Bins, as ID[x,y] ArIV
-cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_icubes.fits' # Flux Cube
-vcube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_vcubes.fits' # Variance Cube
-dest="/Volumes/TOSHIBA EXT/MARTINLAB/j1238/"
+#j1238
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j1238+1009_main_icubes5006_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1238/"+binning)
+
+
+#j0248
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.J024815-081723_icubes.wc.c3728_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/J024815-081723_icubes.wc.c.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/J024815-081723_vcubes.wc.c.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0248/"+binning)
+#j1044
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j1044+0353_addALL_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1044+0353_addALL_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1044+0353_addALL_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1044/"+binning)
 '''
-bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits'    # Assigned Bins, as ID[x,y] Used O2 3727
-#bin_file = 'j0823+0313/assigned4740_j0823.fits'    # Assigned Bins, as ID[x,y] ArIV
-cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits' # Flux Cube
-vcube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits' # Variance Cube
-dest="/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"
-
-zspec = 0.009864
-xiraf = 119
-yiraf = 96
-#
-#bin_file = 'j1238+1009/assigned3727_j1238.fits'
-##bin_file   = 'j1238+1009/assigned4740_j1238.fits'
-#cube_file  = 'j1238+1009/j1238+1009_main_icubes.fits'
-#vcube_file = 'j1238+1009/j1238+1009_main_vcubes.fits'
-#zspec = 0.003928
-#xiraf = 89.5
-#yiraf = 66.5
-
-print("line 881")
-##################################################################################
-wflag = 'air'
-#verbose = True
-verbose = False
-#flag_LDL = True # low density limit for O2 doublet
-flag_LDL = False
-flag_Ar4 = False  # using Ar4 bin assignments?  Otherwise assume O2 bin assignments
-
-hdulist = fits.open(bin_file)       
-bin = hdulist[0].data               # [y_image, x_image]
-
-hdulist = fits.open(vcube_file)    
-vcube = hdulist[0].data
-
-hdulist = fits.open(cube_file)     
-cube_header = fits.getheader(cube_file)
-cube = hdulist[0].data
-
-# Set the WCS for the wavelength direction in 1D
-spec_header = cube_header.copy()     # does this need to be deep copy?                  
-spec_header['CRVAL1'] = cube_header['CRVAL3']   
-spec_header['CD1_1'] = cube_header['CD3_3']     
-# Set the WCS for an image direction in 2D
-image_header = cube_header.copy()      # does this need to be deep copy?                  
-image_header['PHOTFLAM'] = 1
-image_header['WCSDIM'] = 2
-image_header.remove('CTYPE3')
-image_header.remove('CUNIT3')
-image_header.remove('CNAME3')
-image_header.remove('CRVAL3')
-image_header.remove('CRPIX3')
-image_header.remove('CD3_3')
-
-print("line 915")
-
-#show_bins(bin)  # plot the map of all bins
-goodbins = np.where(bin > 0, bin, 0)   
-show_bins(goodbins) # plot the map of all the good bins (those with a significant signal)
-
-print("line 921")
-
-# select bins for spectral extraction
-id, nid = np.unique(goodbins, return_counts=True)   # Find unique bin numbers and count their spaxels
-if verbose:
-    fig = plt.figure()
-    plt.plot(id,nid, 'sk')
-    fig.show()
-
-print("line 933")
-
-#binlist = list(id[1:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
-binlist,bbl=reverseassign(goodbins)
-binlist=binlist[1:]
-# Example O2 bins
-#binlist = list(id[599:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
-#binlist = [1573]  #J1044
-#binlist = [272,1964,548,2018,1573]  #J1044
-#binlist = [1610,761]  #J1044
-#binlist = [861, 2197, 1167, 2166, 446]
-#binlist = [4365]  # O2 bin for J1238
-    
-# Example Ar4 bins
-#binlist = [93,30,150]  # Ar4 bin for J1044
-
-
-nspec = len(binlist)
-nz = cube[:,0,0].size
-ny = cube[0,:,0].size
-nx = cube[0,0,:].size
+#j0823
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"+binning)
 '''
-allwave = np.zeros(nspec*nz).reshape((nspec,nz))
-allflux = np.zeros(nspec*nz).reshape((nspec,nz))
-allerr = np.zeros(nspec*nz).reshape((nspec,nz))
-
+#j0944
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0944/"+binning)
+#j1418
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1418/"+binning)
+#j1016
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1016/"+binning)
+#j0837
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0837/"+binning)
 '''
-allmask = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-#save_fits_cube(cube, vcube, cube_header, bin, binlist, 'test')
+#liness=['/5007/','/4959/','/3727/']
+for fileind in range(len(bin_file_list)):
 
-print("line 959")
+    start=time.time()
+    bin_file=bin_file_list[fileind]
+    cube_file=cube_file_list[fileind]
+    vcube_file=vcube_file_list[fileind]
+    dest=dest_list[fileind]
 
-'''
-o32 = []
-o32snr = []
+    zspec = 0.009864
+    xiraf = 119
+    yiraf = 96
+    #
+    #bin_file = 'j1238+1009/assigned3727_j1238.fits'
+    ##bin_file   = 'j1238+1009/assigned4740_j1238.fits'
+    #cube_file  = 'j1238+1009/j1238+1009_main_icubes.fits'
+    #vcube_file = 'j1238+1009/j1238+1009_main_vcubes.fits'
+    #zspec = 0.003928
+    #xiraf = 89.5
+    #yiraf = 66.5
 
-listdr = []
-listdrsnr = []
+    print("line 881")
+    ##################################################################################
+    wflag = 'air'
+    #verbose = True
+    verbose = False
+    #flag_LDL = True # low density limit for O2 doublet
+    flag_LDL = False
+    flag_Ar4 = False  # using Ar4 bin assignments?  Otherwise assume O2 bin assignments
 
-if flag_Ar4:
-    listAr4 = []
-    listAr4snr = []
+    hdulist = fits.open(bin_file)       
+    bin = hdulist[0].data               # [y_image, x_image]
 
-listall = []
-listallsnr = []
-'''
+    hdulist = fits.open(vcube_file)    
+    vcube = hdulist[0].data
 
-shift=[]
-shifte=[]
-sigma=[]
-sigmae=[]
+    hdulist = fits.open(cube_file)     
+    cube_header = fits.getheader(cube_file)
+    cube = hdulist[0].data
 
-nm = 0  # index counter for binlist
-for m in binlist:
-    print ("Extracting bin ", nm+1,"out of",len(binlist))
-    mask = np.where(bin == nm+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
-    wave, flam_spec, flam_espec = spec_extract2(cube, vcube,mask, m)
+    # Set the WCS for the wavelength direction in 1D
+    spec_header = cube_header.copy()     # does this need to be deep copy?                  
+    spec_header['CRVAL1'] = cube_header['CRVAL3']   
+    spec_header['CD1_1'] = cube_header['CD3_3']     
+    # Set the WCS for an image direction in 2D
+    image_header = cube_header.copy()      # does this need to be deep copy?                  
+    image_header['PHOTFLAM'] = 1
+    image_header['WCSDIM'] = 2
+    image_header.remove('CTYPE3')
+    image_header.remove('CUNIT3')
+    image_header.remove('CNAME3')
+    image_header.remove('CRVAL3')
+    image_header.remove('CRPIX3')
+    image_header.remove('CD3_3')
+
+    print("line 915")
+
+    #show_bins(bin)  # plot the map of all bins
+    goodbins = np.where(bin > 0, bin, 0)   
+    show_bins(goodbins) # plot the map of all the good bins (those with a significant signal)
+
+    print("line 921")
+
+    # select bins for spectral extraction
+    id, nid = np.unique(goodbins, return_counts=True)   # Find unique bin numbers and count their spaxels
+    if verbose:
+        fig = plt.figure()
+        plt.plot(id,nid, 'sk')
+        fig.show()
+
+    print("line 933")
+
+    #binlist = list(id[1:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
+
+    #binlist,bbl=reverseassign(goodbins)
+    #binlist=binlist[1:]
+
+    # Example O2 bins
+    #binlist = list(id[599:])  # list of bins for spectral extraction; breaks for m=0, so skip first entry
+    #binlist = [1573]  #J1044
+    #binlist = [272,1964,548,2018,1573]  #J1044
+    #binlist = [1610,761]  #J1044
+    #binlist = [861, 2197, 1167, 2166, 446]
+    #binlist = [4365]  # O2 bin for J1238
+        
+    # Example Ar4 bins
+    #binlist = [93,30,150]  # Ar4 bin for J1044
+
+    wave, allflam_spec, allflam_espec = spec_extractALL(cube, vcube,goodbins)
+    nspec = allflam_spec.shape[1]
+    nz = cube[:,0,0].size
+    ny = cube[0,:,0].size
+    nx = cube[0,0,:].size
+    '''
+    allwave = np.zeros(nspec*nz).reshape((nspec,nz))
+    allflux = np.zeros(nspec*nz).reshape((nspec,nz))
+    allerr = np.zeros(nspec*nz).reshape((nspec,nz))
 
     '''
-    if verbose:
-        fits.writeto('bin' + str(m) + '_mask.fits', mask, image_header, overwrite=True)  # output to visualize bin
-        save_fits_spectrum(wave, flam_spec, flam_espec, spec_header, label="spec1d_" + str(m))
-    if verbose:
-        plot_spectrum(wave, flam_spec, flam_espec, label= "bin" + str(m))
-    
-    allwave[nm,:]   = np.copy(wave)
-    allflux[nm,:]   = np.copy(flam_spec)
-    allerr[nm,:]    = np.copy(flam_espec)
+    allmask = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    #save_fits_cube(cube, vcube, cube_header, bin, binlist, 'test')
+
+    print("line 959")
+
     '''
-    #allmask[nm,:,:] = np.copy(mask)
-    wk0 = wave / (1 + zspec)  # rest-frame wavelength
-    print ("Fitting bin ", nm+1,"out of",len(binlist))
-    flux5007, snr5007,p5007,e5007,wline = get_line5007(wk0, flam_spec, flam_espec, wflag)
-    redshift=(p5007[1]-wline)/wline
-    shift.append(redshift)
-    shifte.append(e5007[1]/wline)
-    sigma.append(p5007[2])
-    sigmae.append(e5007[2])
+    o32 = []
+    o32snr = []
 
-    nm = nm + 1
+    listdr = []
+    listdrsnr = []
+
+    if flag_Ar4:
+        listAr4 = []
+        listAr4snr = []
+
+    listall = []
+    listallsnr = []
+    '''
+    print("before all whatever")
+    flux5007, snr5007,p5007,e5007,wline5007 = get_line5007(wave / (1 + zspec), np.sum(allflam_spec,axis=1), np.sum(allflam_espec,axis=1), wflag,5007)
+    
+    flux4959, snr4959, p4959, e4959, wline4959 = get_line4959(wave / (1 + zspec), np.sum(allflam_spec,axis=1), np.sum(allflam_espec,axis=1), wflag,4959)
+    flux3727, snr3727, dr, sndr, p3727, e3727, wline3727 = get_line3727(wave / (1 + zspec), np.sum(allflam_spec,axis=1), np.sum(allflam_espec,axis=1),wflag, flag_LDL,3727)
+    print("after whatever")
+    locs=np.array([p5007[1],p4959[1],p3727[1]])
+    print(locs)
+    wlines=np.array([wline5007,wline4959,wline3727])
+    locerr=np.array([e5007[1],e4959[1],e3727[1]])
+    redshiftsa=np.divide((locs-wlines),wlines)
+    redshiftesa=np.divide(locerr,wlines)
+    # using an inverse variance weighted mean
+    #line=np.argmin(np.abs(locerr))
+    #redshifta=np.mean(redshiftsa[line])
+    #redshiftea=np.sqrt(np.sum(redshiftesa[line]**2))
+    
+
+    shift=[]
+    shifte=[]
+    shifte5007=[]
+    shifte4959=[]
+    shifte3727=[]
+    sigma=[]
+    sigmae=[]
+    vel=[]
+    vel5007=[]
+    vel4959=[]
+    vel3727=[]
+    vele5007=[]
+    vele4959=[]
+    vele3727=[]
+    sig5007=[]
+    sig4959=[]
+    sig3727=[]
+    sige5007=[]
+    sige4959=[]
+    sige3727=[]
+    vele=[]
+    #velocity is in units of c
+
+    # index counter for binlist
+
+    for m in range(1,nspec):
+        print ("Extracting bin ", m,"out of",nspec)
+        #mask = np.where(bin == m+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
+        '''
+        if verbose:
+            fits.writeto('bin' + str(m) + '_mask.fits', mask, image_header, overwrite=True)  # output to visualize bin
+            save_fits_spectrum(wave, flam_spec, flam_espec, spec_header, label="spec1d_" + str(m))
+        if verbose:
+            plot_spectrum(wave, flam_spec, flam_espec, label= "bin" + str(m))
+        
+        allwave[nm,:]   = np.copy(wave)
+        allflux[nm,:]   = np.copy(flam_spec)
+        allerr[nm,:]    = np.copy(flam_espec)
+        '''
+        #allmask[nm,:,:] = np.copy(mask)
+        wk0 = wave / (1 + zspec)  # rest-frame wavelength
+        print ("Fitting bin ", m,"out of",nspec)
+        #print(allflam_spec[:,m])
+        #print(allflam_espec[:,m])
+        flux5007, snr5007,p5007,e5007,wline5007 = get_line5007(wk0, allflam_spec[:,m], allflam_espec[:,m], wflag,locs[0])
+        flux4959, snr4959, p4959, e4959, wline4959 = get_line4959(wk0, allflam_spec[:,m], allflam_espec[:,m], wflag,locs[1])
+        flux3727, snr3727, dr, sndr, p3727, e3727, wline3727 = get_line3727(wk0, allflam_spec[:,m], allflam_espec[:,m], wflag, flag_LDL,locs[2])
+        
+        locs=np.array([p5007[1],p4959[1],p3727[1]])
+        sigs=np.array([p5007[2],p4959[2],p3727[2]])
+        wlines=np.array([wline5007,wline4959,wline3727])
+        locerr=np.array([e5007[1],e4959[1],e3727[1]])
+        sigerr=np.array([e5007[2],e4959[2],e3727[2]])
+        redshifts=np.divide((locs-wlines),wlines)
+        redshiftes=np.divide(locerr,wlines)
+        
+        #line=np.argmin(np.abs(locerr))
+        #redshift=np.mean(redshifts[line])
+        #sig=np.mean(sigs[line])
+        #redshifte=np.sqrt(np.sum(redshiftes[line]**2))
+        #sige=np.sqrt(np.sum(sigerr[line]**2))
+        
+        #shift.append(redshift)
+        #shifte.append(redshifte)
+        #shifte5007.append(np.sqrt(np.sum(redshiftes[0]**2)))
+        #shifte4959.append(np.sqrt(np.sum(redshiftes[1]**2)))
+        #shifte3727.append(np.sqrt(np.sum(redshiftes[2]**2)))
+        #sigma.append(sig)
+        #sigmae.append(sige)
+        #velo=(redshift-redshifta)/(1+redshifta)
+        #vel.append(velo)
+        vel5007.append((redshifts[0]-redshiftsa[0])/(1+redshiftsa[0]))
+        vel4959.append((redshifts[1]-redshiftsa[1])/(1+redshiftsa[1]))
+        vel3727.append((redshifts[2]-redshiftsa[2])/(1+redshiftsa[2]))
+        vele5007.append(vel5007[-1]*np.sqrt(((redshiftes[0]**2+redshiftesa[0]**2)/(redshifts[0]-redshiftsa[0])**2)+(redshiftesa[0]/(1+redshiftsa[0]))**2))
+        vele4959.append(vel4959[-1]*np.sqrt(((redshiftes[1]**2+redshiftesa[1]**2)/(redshifts[1]-redshiftsa[1])**2)+(redshiftesa[1]/(1+redshiftsa[1]))**2))
+        vele3727.append(vel3727[-1]*np.sqrt(((redshiftes[2]**2+redshiftesa[2]**2)/(redshifts[2]-redshiftsa[2])**2)+(redshiftesa[2]/(1+redshiftsa[2]))**2))
+        #vele.append(velo*np.sqrt(((redshifte**2+redshiftea**2)/(redshift-redshifta)**2)+(redshiftea/(1+redshifta))**2))
+        sig5007.append(sigs[0])
+        sig4959.append(sigs[1])
+        sig3727.append(sigs[2])
+        sige5007.append(sigerr[0])
+        sige4959.append(sigerr[1])
+        sige3727.append(sigerr[2])
+
+    # FIT THE EMISSION LINES HERE
+    # compute O32
+    # o32.append(newvalue)
+    #line = ["O3_4959", "O3_5007", "O2"] 
+    #w0 = [4958.92, 5006.84, 3728.82] # rest-frame wavelengths  3726.03, 3728.82
 
 
+    print("line 1036")
+    '''
+    mastershift = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        mastershift[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shift[nm]
+    mapshift = np.sum(mastershift, axis=0)
+    fits.writeto(dest+'shift_bin.fits', mapshift, image_header, overwrite=True) 
+    mastershifte = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        mastershifte[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shifte[nm]
+    mapshifte = np.sum(mastershifte, axis=0)
+    fits.writeto(dest+'shifte_bin.fits', mapshifte, image_header, overwrite=True)
+    mastersigma= np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        mastersigma[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * sigma[nm]
+    mapsigma = np.sum(mastersigma, axis=0)
+    fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True) 
+    mastersigmae= np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        mastersigmae[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * sigmae[nm]
+    mapsigmae = np.sum(mastersigmae, axis=0)
+    fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True) 
 
-# FIT THE EMISSION LINES HERE
-# compute O32
-# o32.append(newvalue)
-#line = ["O3_4959", "O3_5007", "O2"] 
-#w0 = [4958.92, 5006.84, 3728.82] # rest-frame wavelengths  3726.03, 3728.82
-3
-wavea,flam_speca,flam_especa=spec_extract2(cube, vcube, np.ones((ny,nx)), bbl)
-flux5007a, snr5007a,p5007a,e5007a,wlinea = get_line5007(wavea / (1 + zspec), flam_speca, flam_especa, wflag)
-redshifta=(p5007a[1]-wlinea)/wlinea
-print(flux5007a)
-print(snr5007a)
-print(redshifta)
-shiftdif=[a-redshifta for a in shift]
+    mastershiftdif = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        mastershiftdif[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shiftdif[nm]
+    mapshiftdif = np.sum(mastershiftdif, axis=0)
+    fits.writeto(dest+'shiftdif_bin.fits', mapshiftdif, image_header, overwrite=True)  
+    '''
+    mapa=goodbins.astype(int)
+    #mapshift = np.zeros_like(goodbins)
+    #mapshifte = np.zeros_like(goodbins)
+    #mapshifte5007 = np.zeros_like(goodbins)
+    #mapshifte4959 = np.zeros_like(goodbins)
+    #mapshifte3727 = np.zeros_like(goodbins)
+    #mapsigma = np.zeros_like(goodbins)
+    #mapsigmae = np.zeros_like(goodbins)
+    #mapvel = np.zeros_like(goodbins)
+    mapvel5007 = np.zeros_like(goodbins)
+    mapvel4959 = np.zeros_like(goodbins)
+    mapvel3727 = np.zeros_like(goodbins)
+    mapvele5007 = np.zeros_like(goodbins)
+    mapvele4959 = np.zeros_like(goodbins)
+    mapvele3727 = np.zeros_like(goodbins)
 
-print("line 1036")
-'''
-mastershift = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    mastershift[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shift[nm]
-mapshift = np.sum(mastershift, axis=0)
-fits.writeto(dest+'shift_bin.fits', mapshift, image_header, overwrite=True) 
-mastershifte = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    mastershifte[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shifte[nm]
-mapshifte = np.sum(mastershifte, axis=0)
-fits.writeto(dest+'shifte_bin.fits', mapshifte, image_header, overwrite=True)
-mastersigma= np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    mastersigma[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * sigma[nm]
-mapsigma = np.sum(mastersigma, axis=0)
-fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True) 
-mastersigmae= np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    mastersigmae[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * sigmae[nm]
-mapsigmae = np.sum(mastersigmae, axis=0)
-fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True) 
+    mapsig5007 = np.zeros_like(goodbins)
+    mapsig4959 = np.zeros_like(goodbins)
+    mapsig3727 = np.zeros_like(goodbins)
+    mapsige5007 = np.zeros_like(goodbins)
+    mapsige4959 = np.zeros_like(goodbins)
+    mapsige3727 = np.zeros_like(goodbins)
+    #mapvele = np.zeros_like(goodbins)
+    for x in range(nx):
+        for y in range(ny):
+            if mapa[y,x]!=0:
+                #mapshift[y,x]=shift[mapa[y,x]-1]
+                #mapshifte[y,x]=shifte[mapa[y,x]-1]
+                #mapshifte5007[y,x]=shifte5007[mapa[y,x]-1]
+                #mapshifte4959[y,x]=shifte4959[mapa[y,x]-1]
+                #mapshifte3727[y,x]=shifte3727[mapa[y,x]-1]
+                #mapsigma[y,x]=sigma[mapa[y,x]-1]
+                #mapsigmae[y,x]=sigmae[mapa[y,x]-1]
+                #mapvel[y,x]=vel[mapa[y,x]-1]
+                mapvel5007[y,x]=vel5007[mapa[y,x]-1]
+                mapvel4959[y,x]=vel4959[mapa[y,x]-1]
+                mapvel3727[y,x]=vel3727[mapa[y,x]-1]
+                mapvele5007[y,x]=vele5007[mapa[y,x]-1]
+                mapvele4959[y,x]=vele4959[mapa[y,x]-1]
+                mapvele3727[y,x]=vele3727[mapa[y,x]-1]
 
-mastershiftdif = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    mastershiftdif[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * shiftdif[nm]
-mapshiftdif = np.sum(mastershiftdif, axis=0)
-fits.writeto(dest+'shiftdif_bin.fits', mapshiftdif, image_header, overwrite=True)  
-'''
+                mapsig5007[y,x]=sig5007[mapa[y,x]-1]
+                mapsig4959[y,x]=sig4959[mapa[y,x]-1]
+                mapsig3727[y,x]=sig3727[mapa[y,x]-1]
+                mapsige5007[y,x]=sige5007[mapa[y,x]-1]
+                mapsige4959[y,x]=sige4959[mapa[y,x]-1]
+                mapsige3727[y,x]=sige3727[mapa[y,x]-1]
+                #mapvele[y,x]=vele[mapa[y,x]-1]
+    #fits.writeto(dest+'shift_bin.fits', mapshift, image_header, overwrite=True,checksum=True) 
+    #fits.writeto(dest+'shifte_bin.fits', mapshifte, image_header, overwrite=True,checksum=True)
+    #fits.writeto(dest+'shifte5007_bin.fits', mapshifte5007, image_header, overwrite=True,checksum=True)
+    #fits.writeto(dest+'shifte4959_bin.fits', mapshifte4959, image_header, overwrite=True,checksum=True)
+    #fits.writeto(dest+'shifte3727_bin.fits', mapshifte3727, image_header, overwrite=True,checksum=True)
+    #fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True,checksum=True) 
+    #fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True,checksum=True) 
+    #fits.writeto(dest+'vel_bin.fits', mapvel, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'vel5007_bin.fits', mapvel5007, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'vel4959_bin.fits', mapvel4959, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'vel3727_bin.fits', mapvel3727, image_header, overwrite=True,checksum=True)
+    fits.writeto(dest+'vele5007_bin.fits', mapvele5007, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'vele4959_bin.fits', mapvele4959, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'vele3727_bin.fits', mapvele3727, image_header, overwrite=True,checksum=True) 
 
-mapshift = np.zeros_like(goodbins)
-mapshifte = np.zeros_like(goodbins)
-mapsigma = np.zeros_like(goodbins)
-mapsigmae = np.zeros_like(goodbins)
-mapshiftdif = np.zeros_like(goodbins)
-for b in range(len(binlist)):
-    for t in binlist[b]:
-        y=int(t[0])
-        x=int(t[1])
-        mapshift[y,x]=shift[b]
-        mapshifte[y,x]=shifte[b]
-        mapsigma[y,x]=sigma[b]
-        mapsigmae[y,x]=sigmae[b]
-        mapshiftdif[y,x]=shiftdif[b]
-fits.writeto(dest+'shift_bin.fits', mapshift, image_header, overwrite=True) 
-fits.writeto(dest+'shifte_bin.fits', mapshifte, image_header, overwrite=True)
-fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True) 
-fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True) 
-fits.writeto(dest+'shiftdif_bin.fits', mapshiftdif, image_header, overwrite=True)  
-'''
-# Populate the O32 map
-masterO32 = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    masterO32[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * o32[nm]
-mapO32 = np.sum(masterO32, axis=0)
-fits.writeto(dest+'O32_bin.fits', mapO32, image_header, overwrite=True)  
-
-
-masterO32snr = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):   # each entry in binlist
-    masterO32snr[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * o32snr[nm]
-mapO32snr = np.sum(masterO32snr, axis=0)
-fits.writeto(dest+'O32snr_bin.fits', mapO32snr, image_header, overwrite=True)  
-
-
-masterO2DR = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):
-    masterO2DR[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listdr[nm]
-mapO2DR = np.sum(masterO2DR, axis=0)
-fits.writeto(dest+'O2DR_bin.fits', mapO2DR, image_header, overwrite=True)  
-
-masterO2DRsnr = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
-for nm in range(nspec):
-    masterO2DRsnr[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listdrsnr[nm]
-mapO2DRsnr = np.sum(masterO2DRsnr, axis=0)
-fits.writeto(dest+'O2DRsnr_bin.fits', mapO2DRsnr, image_header, overwrite=True)  
+    fits.writeto(dest+'sig5007_bin.fits', mapsig5007, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'sig4959_bin.fits', mapsig4959, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'sig3727_bin.fits', mapsig3727, image_header, overwrite=True,checksum=True)
+    fits.writeto(dest+'sige5007_bin.fits', mapsige5007, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'sige4959_bin.fits', mapsige4959, image_header, overwrite=True,checksum=True) 
+    fits.writeto(dest+'sige3727_bin.fits', mapsige3727, image_header, overwrite=True,checksum=True)  
+    #fits.writeto(dest+'vele_bin.fits', mapvele, image_header, overwrite=True,checksum=True)  
+    '''
+    # Populate the O32 map
+    masterO32 = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        masterO32[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * o32[nm]
+    mapO32 = np.sum(masterO32, axis=0)
+    fits.writeto(dest+'O32_bin.fits', mapO32, image_header, overwrite=True)  
 
 
-if flag_Ar4:
-    masterAr4DR = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    masterO32snr = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    for nm in range(nspec):   # each entry in binlist
+        masterO32snr[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * o32snr[nm]
+    mapO32snr = np.sum(masterO32snr, axis=0)
+    fits.writeto(dest+'O32snr_bin.fits', mapO32snr, image_header, overwrite=True)  
+
+
+    masterO2DR = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
     for nm in range(nspec):
-        masterAr4DR[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listAr4[nm]
-    mapAr4DR = np.sum(masterAr4DR, axis=0)
-    fits.writeto(dest+'Ar4DR_bin.fits', mapAr4DR, image_header, overwrite=True)  
+        masterO2DR[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listdr[nm]
+    mapO2DR = np.sum(masterO2DR, axis=0)
+    fits.writeto(dest+'O2DR_bin.fits', mapO2DR, image_header, overwrite=True)  
 
-    masterAr4DRsnr = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+    masterO2DRsnr = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
     for nm in range(nspec):
-        masterAr4DRsnr[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listAr4snr[nm]
-    mapAr4DRsnr = np.sum(masterAr4DRsnr, axis=0)
-    fits.writeto(dest+'Ar4DRsnr_bin.fits', mapAr4DRsnr, image_header, overwrite=True)  
-'''
+        masterO2DRsnr[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listdrsnr[nm]
+    mapO2DRsnr = np.sum(masterO2DRsnr, axis=0)
+    fits.writeto(dest+'O2DRsnr_bin.fits', mapO2DRsnr, image_header, overwrite=True)  
 
 
-print("line 1081")
+    if flag_Ar4:
+        masterAr4DR = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+        for nm in range(nspec):
+            masterAr4DR[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listAr4[nm]
+        mapAr4DR = np.sum(masterAr4DR, axis=0)
+        fits.writeto(dest+'Ar4DR_bin.fits', mapAr4DR, image_header, overwrite=True)  
+
+        masterAr4DRsnr = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
+        for nm in range(nspec):
+            masterAr4DRsnr[nm,:,:] = np.where(allmask[nm,:,:] > 0, 1, 0) * listAr4snr[nm]
+        mapAr4DRsnr = np.sum(masterAr4DRsnr, axis=0)
+        fits.writeto(dest+'Ar4DRsnr_bin.fits', mapAr4DRsnr, image_header, overwrite=True)  
+    '''
 
 
-# Map the radius pixel by pixel
-radius, theta = get_pixel_coords(bin,xiraf,yiraf,dest)
+    print("line 1081")
 
-# compute radius of each bin 
-bin_radii = []
-bin_radii_err = []
-bin_theta = []
-for m in binlist:
-    mask = np.where(bin == m, bin, 0)  # mask for the bin
-    coords = [(j,i) for j in range(mask[:,0].size) for i in range(mask[0,:].size) if mask[j,i] !=0]  # select spaxels
-    rlist = [radius[j,i] for (j,i) in coords]
-    thlist = [theta[j,i] for (j,i) in coords]
-    # Weighted average requires subroutine. You do not have line flux at each pixel, only for each bin.
-    # You could use inverse variance at each pixel at line center (or over some fixed line width) from vcube; but
-    # you still need to identify the index of the line center in the cube.
-    bin_radii.append(np.mean(rlist))
-    bin_theta.append(np.mean(thlist))
-    if len(rlist) <= 1:
-        bin_radii_err.append(0.5)   # assign half a pixel
-    else:
-        bin_radii_err.append(np.std(rlist))  
+    '''
+    # Map the radius pixel by pixel
+    radius, theta = get_pixel_coords(bin,xiraf,yiraf,dest)
 
+    # compute radius of each bin 
+    bin_radii = []
+    bin_radii_err = []
+    bin_theta = []
+    for m in range(1,nspec):
+        print ("Fitting bin ", m,"out of",nspec)
+        mask = np.where(bin == m, bin, 0)  # mask for the bin
+        coords = [(j,i) for j in range(mask[:,0].size) for i in range(mask[0,:].size) if mask[j,i] !=0]  # select spaxels
+        rlist = [radius[j,i] for (j,i) in coords]
+        thlist = [theta[j,i] for (j,i) in coords]
+        # Weighted average requires subroutine. You do not have line flux at each pixel, only for each bin.
+        # You could use inverse variance at each pixel at line center (or over some fixed line width) from vcube; but
+        # you still need to identify the index of the line center in the cube.
+        bin_radii.append(np.mean(rlist))
+        bin_theta.append(np.mean(thlist))
+        if len(rlist) <= 1:
+            bin_radii_err.append(0.5)   # assign half a pixel
+        else:
+            bin_radii_err.append(np.std(rlist))  
+    '''
 
+    #print("len bin rad",len(bin_radii),"len bin rad err",len(bin_radii_err),"len bin th",len(bin_theta),"shift",len(shift))
 
-# Save Output
-data = Table([bin_radii, bin_radii_err, bin_theta, shift, shifte,shiftdif,sigma,sigmae, range(len(binlist))], names=['R(pix)', 'errR(pix)', "theta", 'shift', 'shifterr','shiftdif','sigma','sigmaerr', 'bin'])
-ascii.write(data, dest+"output_bin_R_shift.txt", overwrite = True)
+    # Save Output
+    #data = Table([bin_radii, bin_radii_err, bin_theta, shift, shifte,vel,vele,sigma,sigmae, range(1,nspec)], names=['R(pix)', 'errR(pix)', "theta", 'shift', 'shifterr','vel*c','velerr*c','sigma','sigmaerr', 'bin'])
+    #ascii.write(data, dest+"output_bin_R_shift.txt", overwrite = True)
 
-'''
-if flag_Ar4:
-    data = Table([bin_radii, bin_radii_err, bin_theta, listall, listallsnr, listAr4, listAr4snr, binlist], names=['R(pix)', 'errR(pix)', "theta", 'O2DR', 'snrO2DR', 'Ar4DR', 'snrAr4DR', 'bin'])
-    ascii.write(data, dest+"output_bin_R_den.txt", overwrite = True)
-'''
-print("line 1117")
-
-
-#################################################################################
-
-# old way
-#hdu = fits.PrimaryHDU(newcube)
-#newhdulist = fits.HDUList([hdu])
-#newhdulist.writeto('test_cube.fits', overwrite=True)
+    '''
+    if flag_Ar4:
+        data = Table([bin_radii, bin_radii_err, bin_theta, listall, listallsnr, listAr4, listAr4snr, binlist], names=['R(pix)', 'errR(pix)', "theta", 'O2DR', 'snrO2DR', 'Ar4DR', 'snrAr4DR', 'bin'])
+        ascii.write(data, dest+"output_bin_R_den.txt", overwrite = True)
+    '''
+    print("line 1117")
 
 
-#hdu = fits.PrimaryHDU(mask)
-#newhdulist = fits.HDUList([hdu])
-#newhdulist.writeto('bin' + str(m) + '_mask.fits', overwrite=True)
+    #################################################################################
 
-print("total processing time",time.time()-start)
+    # old way
+    #hdu = fits.PrimaryHDU(newcube)
+    #newhdulist = fits.HDUList([hdu])
+    #newhdulist.writeto('test_cube.fits', overwrite=True)
 
+
+    #hdu = fits.PrimaryHDU(mask)
+    #newhdulist = fits.HDUList([hdu])
+    #newhdulist.writeto('bin' + str(m) + '_mask.fits', overwrite=True)
+
+    print("total processing time",time.time()-start)
+print("total actual overall processing time",time.time()-start0)

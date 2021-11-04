@@ -11,6 +11,7 @@ from astropy.table import Table
 from scipy.optimize import curve_fit
 from IPython import embed   # add embed()
 import time
+#from cubeloop import cubeloop
 
 
 
@@ -172,41 +173,41 @@ def spec_extract2(cube, vcube, mask, coords):
     #eallspec=np.zeros((len(coords),nz))
     spec=np.zeros(nz)
     espec=np.zeros(nz)
-    print("nspec",nz)
+    #print("nspec",nz)
 
     if ifancy:
-        if len(coords)>1:
+        if False:
             spec=np.einsum('ij,kij->k',mask,cube)
             espec=np.einsum('ij,kij->k',mask,vcube)
         else:
             # Use list comprehension
             a=time.time()
-            print("init",a-p) 
+            #print("init",a-p) 
             print(coords)
             #speclist =  [cube[:,j,i] for (j,i) in coords]   #  returns a list of 1D arrays in k-space
             #allspec = np.array(speclist)                    #  2D array in (spaxel number, spectrallength)or (len(coords), nz)
             #spec = np.sum(allspec, axis=0)                  #  smash the spaxels into a 1D spectrum
             #print("sumlist",time.time()-a)
-            '''
-            for q in range(len(coords)):
-                spec+=cube[:,coords[q][0],coords[q][1]]
-                espec+=vcube[:,coords[q][0],coords[q][1]]
-            '''
-            spec=cube[:,coords[0][0],coords[0][1]]
-            espec=vcube[:,coords[0][0],coords[0][1]]
+            
+            #spec,espec=cubeloop(coords,nz,cube,vcube)
             c=time.time()
-            print("zip time",c-a)
+            #print("zip time",c-a)
             '''
             spec=np.sum(np.sum(np.multiply(cube,mask[np.newaxis,:]),axis=1),axis=1)
             print(spec.shape)
             espec=np.sum(np.sum(np.multiply(vcube,mask[np.newaxis,:]),axis=1),axis=1)
             '''
+            for q in range(len(coords)):
+                spec+=cube[:,coords[q][0],coords[q][1]]
+                espec+=vcube[:,coords[q][0],coords[q][1]]
+            
+            #spec,espec=cubeloop.cubeloop(coords,nz,cube.byteswap().newbyteorder(),vcube.byteswap().newbyteorder(),spec,espec)
             b=time.time()
-            print("array crafting",b-c) 
+            #print("array crafting",b-c) 
             #eallspec= np.array(especlist)                     
             #espec = np.sum(eallspec, axis=0) 
                 
-            print("ecube navigation",time.time()-b) 
+            #print("ecube navigation",time.time()-b) 
     else:
         # use loop over all spaxels for complete flexibility
         spec = np.zeros(nz)
@@ -216,8 +217,8 @@ def spec_extract2(cube, vcube, mask, coords):
                 if mask[j,i] != 0:
                     spec = spec + cube[:,j,i]
                     espec = espec + vcube[:,j,i]
-    print("all",time.time()-p) 
-    
+
+
     espec[np.isnan(espec)] = 9e9  # Flag Nans with 9e9
     espec[espec<0] = 9e9          # Flag Negative Variance with 9e9
     espec = np.sqrt(espec)
@@ -1096,6 +1097,8 @@ nspec = len(binlist)
 nz = cube[:,0,0].size
 ny = cube[0,:,0].size
 nx = cube[0,0,:].size
+
+print(nz,ny,nx)
 '''
 allwave = np.zeros(nspec*nz).reshape((nspec,nz))
 allflux = np.zeros(nspec*nz).reshape((nspec,nz))
@@ -1127,12 +1130,22 @@ shifte=[]
 sigma=[]
 sigmae=[]
 
+chunks=1
+edges=[c*int(nz/chunks) for c in range(chunks)]+[nz]
+
 nm = 0  # index counter for binlist
 for m in binlist:
     print ("Extracting bin ", nm+1,"out of",len(binlist))
-    mask = np.where(bin == nm+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold    
-    wave, flam_spec, flam_espec = spec_extract2(cube, vcube,mask, m)
-
+    aa=time.time()
+    mask = np.where(bin == nm+1, 1, 0)   # ZERO is reserved for pixels where binning did not reach the threshold 
+    wave = np.zeros(nz)
+    flam_spec = np.zeros(nz)
+    flam_espec = np.zeros(nz)
+    for c in range(chunks):  
+        #print(edges[c],edges[c+1]-1)
+        AA,flam_spec[edges[c]:edges[c+1]-1],flam_espec[edges[c]:edges[c+1]-1] = spec_extract2(cube[edges[c]:edges[c+1]-1,:,:], vcube[edges[c]:edges[c+1]-1,:,:],mask, np.array(m))
+        wave[edges[c]:edges[c+1]-1]=AA+cube_header['CD3_3']*(edges[c])
+    print("time for extraction: ",time.time()-aa)
     '''
     if verbose:
         fits.writeto('bin' + str(m) + '_mask.fits', mask, image_header, overwrite=True)  # output to visualize bin

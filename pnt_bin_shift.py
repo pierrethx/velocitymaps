@@ -917,19 +917,19 @@ def get_fitAr4(wk0, flux, err, wflag, flag_LDL):
 #xiraf = 79.8
 #yiraf = 70.5
 #
-'''
+
 bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j1238+1009_main_icubes3727_assigned.fits'    # Assigned Bins, as ID[x,y] Used O2 3727
 #bin_file = 'j0823+0313/assigned4740_j0823.fits'    # Assigned Bins, as ID[x,y] ArIV
 cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_icubes.fits' # Flux Cube
 vcube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_vcubes.fits' # Variance Cube
-dest="/Volumes/TOSHIBA EXT/MARTINLAB/j1238/"
+dest="/Volumes/TOSHIBA EXT/MARTINLAB/j1238-1/"
 '''
 bin_file = '/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits'    # Assigned Bins, as ID[x,y] Used O2 3727
 #bin_file = 'j0823+0313/assigned4740_j0823.fits'    # Assigned Bins, as ID[x,y] ArIV
 cube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits' # Flux Cube
 vcube_file = '/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits' # Variance Cube
 dest="/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"
-
+'''
 zspec = 0.009864
 xiraf = 119
 yiraf = 96
