@@ -27,7 +27,7 @@ name=[]
 #j0823
 bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j0823+0313_17frames_icubes3727_assigned.fits')
 dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"+binning)
-extlist.append(0.0002)
+extlist.append(0.0001)
 name.append("j0823")
 
 #j1238

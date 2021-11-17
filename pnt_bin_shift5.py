@@ -1439,6 +1439,7 @@ for fileind in range(len(bin_file_list)):
 
     hdulist = fits.open(bin_file)       
     bin = hdulist[0].data               # [y_image, x_image]
+    wcsx=hdulist[0].header
 
     hdulist = fits.open(vcube_file)    
     vcube = hdulist[0].data
@@ -1720,6 +1721,18 @@ for fileind in range(len(bin_file_list)):
     #fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True,checksum=True) 
     #fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True,checksum=True) 
     #fits.writeto(dest+'vel_bin.fits', mapvel, image_header, overwrite=True,checksum=True) 
+    if True:
+        fig=plt.figure()
+        ax=plt.axes(projection=wcsx)
+        
+        g=ax.imshow(mapvel5007,origin='lower',vmin=-.0001,vmax=0.0001,cmap='seismic')
+        plt.grid(color='black',ls='solid')
+        ax.set_xlabel('Right Ascension')
+        ax.set_ylabel('Declination')
+
+        plt.colorbar(g)
+        plt.show()
+
     fits.writeto(dest+'vel5007_bin.fits', mapvel5007, image_header, overwrite=True,checksum=True) 
     fits.writeto(dest+'vel4959_bin.fits', mapvel4959, image_header, overwrite=True,checksum=True) 
     fits.writeto(dest+'vel3727_bin.fits', mapvel3727, image_header, overwrite=True,checksum=True)
