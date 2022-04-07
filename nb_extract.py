@@ -64,6 +64,7 @@ zspec = 0.004562
 xc = 63  # spot (iraf units) to show in plot, which also shows the sum of all spatial pixels
 yc = 60
 
+
 inputlist.append(input_cube)
 errlist.append(err_cube)
 zsplist.append(zspec)
@@ -197,7 +198,7 @@ lflist.append(False)
 
 
 # Hb 4861 FILTER 
-'''
+
 nzi = 29
 khi = 24 
 klo = 46 
@@ -211,7 +212,7 @@ wvaclist.append(wvac)
 wairlist.append(wair)
 hflist.append(False)
 lflist.append(False)
-'''
+
 
 # [OIII] 4363 FILTER 
 '''
@@ -231,6 +232,7 @@ lflist.append(False)
 '''
 
 # [OIII] 5007 -- Avoid line at 5015.5776 (He I)
+'''
 nzi = 29
 khi = 35
 klo = 30
@@ -243,23 +245,36 @@ klolist.append(klo)
 wvaclist.append(wvac)
 wairlist.append(wair)
 hflist.append(False)
-lflist.append(False)       
+lflist.append(False)  
+'''     
 
 # [OIII] 4959 
-#nzi = 29
-#khi = 38
-#klo = 46 
-#wvac = 4960.30
-#wair = 4958.92      
+'''
+nzi = 29
+khi = 38
+klo = 46 
+wvac = 4960.30
+wair = 4958.92    
+
+
 
 # [OIII] 4959 (J028-0817)
 #nzi = 42
 #khi = 38
 #klo = 46 
 #wvac = 4960.30
-#wair = 4958.92        
-
+#wair = 4958.92 
+# 
+nzilist.append(nzi)
+khilist.append(khi)
+klolist.append(klo)
+wvaclist.append(wvac)
+wairlist.append(wair)
+hflist.append(False)
+lflist.append(False)         
+'''
 # [OII] 3727 doublet
+'''
 nzi = 15
 khi = 38
 klo = 46 
@@ -273,7 +288,7 @@ wvaclist.append(wvac)
 wairlist.append(wair)
 hflist.append(False)
 lflist.append(False) 
-
+'''
 
 # HeI 4471
 #nzi = 13
@@ -456,6 +471,7 @@ for q in range(len(xclist)):
         bglo = bglo / cnt    
 
         bg = (bghi + bglo) / 2.0
+        
         # Estimated stdv in background
         bsig = (bghi - bglo) / 2.0
 
@@ -471,7 +487,7 @@ for q in range(len(xclist)):
 
         fmax = spec[k1:k2].max()
         fmin = spec[k1:k2].min()
-        print(fmin, fmax)
+        #print(fmin, fmax)
         # total background summed over all spatial (x,y).
         bgt   = np.sum(bg,axis=(0,1))
         bglot = np.sum(bglo,axis=(0,1))
@@ -514,7 +530,7 @@ for q in range(len(xclist)):
         for k in range(k1b+1,k2a):
             #print (k + (zzpi-1), scidata[k+(zzpi-1), yc, xc], bglo[yc,xc], bghi[yc,xc], scidata[k+(zzpi-1), yc, xc] - bg[yc,xc])
             #image = image + (scidata[k+(zzpi-1),:,:] - bg[:,:])
-            print (k, scidata[k, yc, xc], bglo[yc,xc], bghi[yc,xc], scidata[k, yc, xc] - bg[yc,xc])
+            #print (k, scidata[k, yc, xc], bglo[yc,xc], bghi[yc,xc], scidata[k, yc, xc] - bg[yc,xc])
             image = image + (scidata[k,:,:] - bg[:,:])
             # add the variance at each image pixel
             err_image = err_image + errdata[k,:,:]
@@ -526,8 +542,10 @@ for q in range(len(xclist)):
         for j in range(nyi):
             for i in range(nxi):
                 if err_image[j,i] == 0:
-                    print("j=", j,  " i=", i, " err_image=", err_image[j,i], " bsig[j,i]=", bsig[j,i])
+                    pass
+                    #print("j=", j,  " i=", i, " err_image=", err_image[j,i], " bsig[j,i]=", bsig[j,i])
 
+        print(len(range(k1b+1,k2a))*np.average(bg),np.average(image),len(range(k1b+1,k2a))*np.average(bg)/np.average(image))
 
         # Create a PrimaryHDU object to encapsulate the data:
         hdu = fits.PrimaryHDU(image)
@@ -560,7 +578,7 @@ for q in range(len(xclist)):
         newhdulist[0].header['BUNIT'] = bunit
         newhdulist[0].header['PHOTFLAM'] = 1e-16
         newhdulist[0].header.comments['PHOTFLAM'] = 'inverse sensitivity, ergs/cm2/Ang/count'
-        newhdulist.writeto(outfile,overwrite=True)
+        #newhdulist.writeto(outfile,overwrite=True)
 
 
 
@@ -668,5 +686,5 @@ for q in range(len(xclist)):
         newhdulist[0].header['CUNIT2'] = cunit2
         #
         newhdulist[0].header['BUNIT'] = bunit
-        newhdulist.writeto(varfile,overwrite=True)
+        #newhdulist.writeto(varfile,overwrite=True)
 

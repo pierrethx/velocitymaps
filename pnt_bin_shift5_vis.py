@@ -8,10 +8,13 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from astropy.io import fits
 from astropy.io import ascii
+from matplotlib.widgets import Cursor
 from astropy.table import Table
 from numpy.core.numeric import zeros_like
 from scipy.optimize import curve_fit
+from astropy.wcs import WCS
 from IPython import embed   # add embed()
+
 import time
 
 
@@ -559,7 +562,7 @@ def fit_line(x, y, yerr, w0, wmin, wmax, bmin, bmax):
         xline = np.linspace(bmin,bmax,50)           # high resolution
         yline = func(xline,p[0],p[1],p[2])
 
-    if verbose:
+    if True:
         print(w0,wmin,wmax,bmin,bmax)
         plt.close()
         fig = plt.figure()
@@ -626,16 +629,17 @@ def fit_line_xbg(x, y, yerr, w0, wmin, wmax, bmin, bmax,wguess):
         #    print ("blo = ", blo, x[blo])
         #    print ("bhi = ", bhi, x[bhi])
         cc=np.zeros(2)
-        '''
+        
         xbg = np.append(x[ilo:blo], x[bhi:ihi])
         ybg = np.append(y[ilo:blo], y[bhi:ihi])
-        cc = np.polyfit(xbg,ybg,1)  # continuum coefficients (first order polynomial)  
-        '''
+        #cc = np.polyfit(xbg,ybg,1)  # continuum coefficients (first order polynomial)  
+        #cc=np.array([0,np.mean(np.abs(ybg))])
         func_bg = np.poly1d(cc)  # function specifying local background                                                 
 
         # Subtract background                                                                                           
         yfit_cont = func_bg(xsec)  # You can define the background at any desired wavelength                            
-        ysub = ysec -yfit_cont
+        
+        ysub = ysec-yfit_cont
 
         #####  Make Guess for Line
         amp = np.abs( 10 * ysub.mean() ) # Gaussian amplitude; keep it positive.                                                                   
@@ -729,9 +733,8 @@ def fit_line_xbg(x, y, yerr, w0, wmin, wmax, bmin, bmax,wguess):
         #print(plo,guess,phi)
         if guess[0]<0:
             guess[0]=(phi[0]+plo[0])/2
-        print(plo,guess,phi)
-        p, pcov = curve_fit(func, xsec, ysub, guess, esec, bounds = [plo,phi])  # y is continuum subtracted (important) 
-                            
+        #print(plo,guess,phi)
+        p, pcov = curve_fit(func, xsec, ysub, guess, esec, bounds = [plo,phi])  # y is continuum subtracted (important)                 
         
 
     perr = np.sqrt(np.diag(pcov))
@@ -756,14 +759,18 @@ def fit_line_xbg(x, y, yerr, w0, wmin, wmax, bmin, bmax,wguess):
         xline = np.linspace(bmin,bmax,50)           # high resolution
         yline = func(xline,p[0],p[1],p[2])
 
-    if verbose:
+    if True:
         print(w0,wmin,wmax,bmin,bmax)
         plt.close()
         fig = plt.figure()
         #plt.plot(xsec,ysub, 'k', label="data-bg")
         #plt.plot(xsec,yfit_line,'b', label="fit",  alpha=0.5)
         plt.step(xsec,ysec, 'g', label="data unedited")
+        plt.step(xbg,xbg*0+np.mean(np.abs(ybg)), 'r', label="noise estimate")
+        plt.step(xbg,xbg*0+3*np.mean(np.abs(ybg)), 'r:', label="noise estimate")
         plt.step(xsec,ysub, 'k', label="data-bg")  
+        plt.step(xbg,ybg, 'y', label="bg")
+        plt.step(xsec,yfit_cont, 'r', label="bg fit")    
         #plt.step(xsec,yfit_cont,'r', label="continuum",  alpha=0.7)      
         plt.step(xsec,yfit_line,'b', label="fit",  alpha=0.5)
         yzero = np.zeros(yline.size)
@@ -774,12 +781,16 @@ def fit_line_xbg(x, y, yerr, w0, wmin, wmax, bmin, bmax,wguess):
         label = str(p)
         plt.title(label)
         plt.legend()
+        print(np.abs(p))
         plt.show()
     
     p[2] = np.abs(p[2]) # sigma sign does not matter
-    #if p[0]<3*np.mean(np.abs(ysub)):
-    #    print("obscured by noise")
-    #    p[1]=np.nan
+    #cc=np.zeros(2)
+    '''
+    if p[0]<3*np.mean(np.abs(ysub)):
+        print("obscured by noise")
+        p[1]=np.nan
+    '''
 
     return cc,p, perr
 
@@ -864,7 +875,6 @@ def get_fit5007(wk0, flux, err, wflag):
     myfit  = func(wk0, *p5007) + p1(wk0)# fitted line + continuum
     flux5007 = np.sqrt(2 * np.pi) * p5007[0] * (1 + zspec) * p5007[2]  # Area = sqrt(2 pi) * amplitude * stddev
     snr5007 = get_snr_line(wk0,flux,err,bmin,bmax)
-
     return flux5007, snr5007
 
 def get_line5007(wk0, flux, err, wflag,wenter):
@@ -1267,7 +1277,7 @@ def fit_doublet(x, y, yerr, w0, wmin, wmax, bmin, bmax):
 
 
     #if True:
-    if verbose:
+    if True:
         fig = plt.figure()
         #plt.plot(xsec,ysub, 'k', label="data-bg")
         #plt.plot(xsec,yfit_line,'b', label="fit",  alpha=0.5)
@@ -1365,53 +1375,52 @@ vcube_file_list=[]
 dest_list=[]
 
 binning="target5/"
-subf=""
-subf2="nebulae2/"
 
 #j1238
 bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j1238+1009_main_icubes5006_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1238+1009_main_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1238+1009_main_vcubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j1238/"+binning)
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1238+1009_main_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1238/"+binning)
+'''
 
 #j0248
 bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.J024815-081723_icubes.wc.c3728_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'J024815-081723_icubes.wc.c.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'J024815-081723_vcubes.wc.c.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j0248/"+binning)
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/J024815-081723_icubes.wc.c.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/J024815-081723_vcubes.wc.c.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0248/"+binning)
 #j1044
 bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j1044+0353_addALL_icubes3727_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1044+0353_addALL_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1044+0353_addALL_vcubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j1044/"+binning)
-
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1044+0353_addALL_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j1044+0353_addALL_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1044/"+binning)
+'''
 #j0823
 bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/'+binning+'z_image.j0823+0313_17frames_icubes3727_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j0823+0313_17frames_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j0823+0313_17frames_vcubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j0823/"+binning)
-
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0823/"+binning)
+'''
 #j0944
-bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0944-0039_addALL_1200_icubes3727_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j0944-0039_addALL_1200_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j0944-0039_addALL_1200_vcubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j0944/"+binning)
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0944/"+binning)
 #j1418
-bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j1418+2101_add1200_icubes3727_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1418+2101_add1200_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1418+2101_add1200_vcubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j1418/"+binning)
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1418/"+binning)
 #j1016
-bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j1016+3754_addALL1200_icubes3727_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1016+3754_addALL1200_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j1016+3754_addALL1200_vcubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j1016/"+binning)
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j1016/"+binning)
 #j0837
-bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0837+5138_all1200_icubes3727_assigned.fits')
-cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j0837+5138_all1200_icubes.fits')
-vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/'+subf+'j0837+5138_all1200_icubes.fits')
-dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/"+subf2+"j0837/"+binning)
-
+bin_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/target5/z_image.j0823+0313_17frames_icubes3727_assigned.fits')
+cube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_icubes.fits')
+vcube_file_list.append('/Volumes/TOSHIBA EXT/MARTINLAB/original/j0823+0313_17frames_vcubes.fits')
+dest_list.append("/Volumes/TOSHIBA EXT/MARTINLAB/j0837/"+binning)
+'''
 #liness=['/5007/','/4959/','/3727/']
 for fileind in range(len(bin_file_list)):
 
@@ -1472,7 +1481,9 @@ for fileind in range(len(bin_file_list)):
 
     #show_bins(bin)  # plot the map of all bins
     goodbins = np.where(bin > 0, bin, 0)   
-    show_bins(goodbins) # plot the map of all the good bins (those with a significant signal)
+    #show_bins(goodbins) # plot the map of all the good bins (those with a significant signal)
+
+    goodbins2=np.where(bin > 0, bin, 0)  
 
     print("line 921")
 
@@ -1532,6 +1543,9 @@ for fileind in range(len(bin_file_list)):
     listallsnr = []
     '''
     print("before all whatever")
+    fig,ax=plt.subplots()
+    ax.plot(wave / (1 + zspec), np.sum(allflam_spec,axis=1))
+    plt.show()
     flux5007, snr5007,p5007,e5007,wline5007 = get_line5007(wave / (1 + zspec), np.sum(allflam_spec,axis=1), np.sum(allflam_espec,axis=1), wflag,5007)
     
     flux4959, snr4959, p4959, e4959, wline4959 = get_line4959(wave / (1 + zspec), np.sum(allflam_spec,axis=1), np.sum(allflam_espec,axis=1), wflag,4959)
@@ -1543,14 +1557,6 @@ for fileind in range(len(bin_file_list)):
     locerr=np.array([e5007[1],e4959[1],e3727[1]])
     redshiftsa=np.divide((locsz-wlines),wlines)
     redshiftesa=np.divide(locerr,wlines)
-    '''
-    zredshiftsa=np.nanmean(redshiftsa)
-    locsz=np.array([wline5007*(1+zredshiftsa)])
-    locerr=np.array([np.nanmean(locerr)])
-    redshiftsa=np.divide((locsz-wline5007),wline5007)
-    redshiftesa=np.divide(locerr,wline5007)
-    zredshiftsa=np.nanmean(redshiftsa)
-    '''
     # using an inverse variance weighted mean
     #line=np.argmin(np.abs(locerr))
     #redshifta=np.mean(redshiftsa[line])
@@ -1604,6 +1610,7 @@ for fileind in range(len(bin_file_list)):
         flux5007, snr5007,p5007,e5007,wline5007 = get_line5007(wk0, allflam_spec[:,m], allflam_espec[:,m], wflag,locsz[0])
         flux4959, snr4959, p4959, e4959, wline4959 = get_line4959(wk0, allflam_spec[:,m], allflam_espec[:,m], wflag,locsz[1])
         flux3727, snr3727, dr, sndr, p3727, e3727, wline3727 = get_line3727(wk0, allflam_spec[:,m], allflam_espec[:,m], wflag, flag_LDL,locsz[2])
+
         locs=np.array([p5007[1],p4959[1],p3727[1]])
         sigs=np.array([p5007[2],p4959[2],p3727[2]])
         wlines=np.array([wline5007,wline4959,wline3727])
@@ -1611,16 +1618,6 @@ for fileind in range(len(bin_file_list)):
         sigerr=np.array([e5007[2],e4959[2],e3727[2]])
         redshifts=np.divide((locs-wlines),wlines)
         redshiftes=np.divide(locerr,wlines)
-        '''
-        locs=np.array([p5007[1]])
-        sigs=np.array([p5007[2]])
-        wlines=np.array([wline5007])
-        locerr=np.array([e5007[1]])
-        sigerr=np.array([e5007[2]])
-        redshifts=np.divide((locs-wlines),wlines)
-        redshiftes=np.divide(locerr,wlines)
-        '''
-        
         
         #line=np.argmin(np.abs(locerr))
         #redshift=np.mean(redshifts[line])
@@ -1643,24 +1640,15 @@ for fileind in range(len(bin_file_list)):
         vele5007.append(np.abs(vel5007[-1]*np.sqrt(((redshiftes[0]**2+redshiftesa[0]**2)/(redshifts[0]-redshiftsa[0])**2)+(redshiftesa[0]/(1+redshiftsa[0]))**2)))
         vele4959.append(np.abs(vel4959[-1]*np.sqrt(((redshiftes[1]**2+redshiftesa[1]**2)/(redshifts[1]-redshiftsa[1])**2)+(redshiftesa[1]/(1+redshiftsa[1]))**2)))
         vele3727.append(np.abs(vel3727[-1]*np.sqrt(((redshiftes[2]**2+redshiftesa[2]**2)/(redshifts[2]-redshiftsa[2])**2)+(redshiftesa[2]/(1+redshiftsa[2]))**2)))
-        
-        select=[vel5007[-1],vel4959[-1],vel3727[-1]]
-        select2=[vele5007[-1],vele4959[-1],vele3727[-1]]
-        vel.append(select[np.argmin(select2)])
-        vele.append(select2[np.argmin(select2)])
-
-
+        #vele.append(velo*np.sqrt(((redshifte**2+redshiftea**2)/(redshift-redshifta)**2)+(redshiftea/(1+redshifta))**2))
         sig5007.append(sigs[0])
         sig4959.append(sigs[1])
         sig3727.append(sigs[2])
         sige5007.append(sigerr[0])
         sige4959.append(sigerr[1])
         sige3727.append(sigerr[2])
-        select3=[sig5007[-1],sig4959[-1],sig3727[-1]]
-        select4=[sige5007[-1],sige4959[-1],sige3727[-1]]
-        sigma.append(select[np.argmin(select3)])
-        sigmae.append(select2[np.argmin(select4)])
 
+        
     # FIT THE EMISSION LINES HERE
     # compute O32
     # o32.append(newvalue)
@@ -1703,9 +1691,9 @@ for fileind in range(len(bin_file_list)):
     #mapshifte5007 = np.zeros_like(goodbins)
     #mapshifte4959 = np.zeros_like(goodbins)
     #mapshifte3727 = np.zeros_like(goodbins)
-    mapsigma = np.zeros_like(goodbins)
-    mapsigmae = np.zeros_like(goodbins)
-    mapvel = np.zeros_like(goodbins)
+    #mapsigma = np.zeros_like(goodbins)
+    #mapsigmae = np.zeros_like(goodbins)
+    #mapvel = np.zeros_like(goodbins)
     mapvel5007 = np.zeros_like(goodbins)
     mapvel4959 = np.zeros_like(goodbins)
     mapvel3727 = np.zeros_like(goodbins)
@@ -1719,7 +1707,7 @@ for fileind in range(len(bin_file_list)):
     mapsige5007 = np.zeros_like(goodbins)
     mapsige4959 = np.zeros_like(goodbins)
     mapsige3727 = np.zeros_like(goodbins)
-    mapvele = np.zeros_like(goodbins)
+    #mapvele = np.zeros_like(goodbins)
     for x in range(nx):
         for y in range(ny):
             if mapa[y,x]!=0:
@@ -1728,9 +1716,9 @@ for fileind in range(len(bin_file_list)):
                 #mapshifte5007[y,x]=shifte5007[mapa[y,x]-1]
                 #mapshifte4959[y,x]=shifte4959[mapa[y,x]-1]
                 #mapshifte3727[y,x]=shifte3727[mapa[y,x]-1]
-                mapsigma[y,x]=sigma[mapa[y,x]-1]
-                mapsigmae[y,x]=sigmae[mapa[y,x]-1]
-                mapvel[y,x]=vel[mapa[y,x]-1]
+                #mapsigma[y,x]=sigma[mapa[y,x]-1]
+                #mapsigmae[y,x]=sigmae[mapa[y,x]-1]
+                #mapvel[y,x]=vel[mapa[y,x]-1]
                 mapvel5007[y,x]=vel5007[mapa[y,x]-1]
                 mapvel4959[y,x]=vel4959[mapa[y,x]-1]
                 mapvel3727[y,x]=vel3727[mapa[y,x]-1]
@@ -1744,15 +1732,15 @@ for fileind in range(len(bin_file_list)):
                 mapsige5007[y,x]=sige5007[mapa[y,x]-1]
                 mapsige4959[y,x]=sige4959[mapa[y,x]-1]
                 mapsige3727[y,x]=sige3727[mapa[y,x]-1]
-                mapvele[y,x]=vele[mapa[y,x]-1]
+                #mapvele[y,x]=vele[mapa[y,x]-1]
     #fits.writeto(dest+'shift_bin.fits', mapshift, image_header, overwrite=True,checksum=True) 
     #fits.writeto(dest+'shifte_bin.fits', mapshifte, image_header, overwrite=True,checksum=True)
     #fits.writeto(dest+'shifte5007_bin.fits', mapshifte5007, image_header, overwrite=True,checksum=True)
     #fits.writeto(dest+'shifte4959_bin.fits', mapshifte4959, image_header, overwrite=True,checksum=True)
     #fits.writeto(dest+'shifte3727_bin.fits', mapshifte3727, image_header, overwrite=True,checksum=True)
-    fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True,checksum=True) 
-    fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True,checksum=True) 
-    fits.writeto(dest+'vel_bin.fits', mapvel, image_header, overwrite=True,checksum=True) 
+    #fits.writeto(dest+'sigma_bin.fits', mapsigma, image_header, overwrite=True,checksum=True) 
+    #fits.writeto(dest+'sigmae_bin.fits', mapsigmae, image_header, overwrite=True,checksum=True) 
+    #fits.writeto(dest+'vel_bin.fits', mapvel, image_header, overwrite=True,checksum=True) 
 
     fits.writeto(dest+'vel5007_bin.fits', mapvel5007, image_header, overwrite=True,checksum=True) 
     fits.writeto(dest+'vel4959_bin.fits', mapvel4959, image_header, overwrite=True,checksum=True) 
@@ -1767,7 +1755,7 @@ for fileind in range(len(bin_file_list)):
     fits.writeto(dest+'sige5007_bin.fits', mapsige5007, image_header, overwrite=True,checksum=True) 
     fits.writeto(dest+'sige4959_bin.fits', mapsige4959, image_header, overwrite=True,checksum=True) 
     fits.writeto(dest+'sige3727_bin.fits', mapsige3727, image_header, overwrite=True,checksum=True)  
-    fits.writeto(dest+'vele_bin.fits', mapvele, image_header, overwrite=True,checksum=True)  
+    #fits.writeto(dest+'vele_bin.fits', mapvele, image_header, overwrite=True,checksum=True)  
     '''
     # Populate the O32 map
     masterO32 = np.zeros(nspec*ny*nx).reshape((nspec,ny,nx))
